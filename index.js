@@ -33,25 +33,25 @@
       if (!a) { return };
       return url + a.pathname };
 
-    let fetchUrlsOfMovies = urls.map(url => fetch(url)).map(unbox(getMovieUrl));
+    let fetchUrlsOfMovies = urls.map(fetch).map((page, i) => { return { url: page.then(getMovieUrl), original: movies[i] } });
 
     return fetchUrlsOfMovies };
 
-  let getMovieWithRating = (moviesWithUrls) => {
+  let getMovieWithRating = (movies) => {
     let extractInfos = page => {
       if (!page) { return };
       let title = page.querySelector('#overview-top .header').textContent;
       let rating = page.querySelector('#overview-top .star-box div').textContent;
       return [title, rating, unproxify(page.URL)] };
-    return moviesWithUrls.map(unbox((url) => fetch(url))).map(unbox((page) => extractInfos(page)));
+    return movies.map((movie) => { movie.page = movie.url.then(fetch);  movie.rating = movie.page.then(extractInfos); return movie });
   };
 
   let moviesEl = document.getElementById("movies");
-  let showOnPage = movie => moviesEl.innerHTML += `${movie[0]} <a href='${movie[2]}'>${movie[1]}</a><br>`;
+  let showOnPage = (movie, rating) => moviesEl.innerHTML += `${movie.original} – ${rating[0]} <a href='${rating[2]}'>${rating[1]}</a><br>`;
 
   let movies = getYorckMovies();
   let pages = movies.then(getImdbPages);
   let ratings = pages.then(getMovieWithRating);
 
-  ratings.then(v => v.map(unbox(showOnPage)));
+  ratings.then(_ => _.map(m => m.rating.then(r => showOnPage(m, r))));
 })(this);
