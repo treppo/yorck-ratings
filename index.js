@@ -3,6 +3,13 @@
   let proxify = url => 'http://crossorigin.me/' + url;
   let unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
 
+  function MovieInfos(title, rating, url, ratingsCount) {
+    this.title = title;
+    this.rating = rating;
+    this.url = url;
+    this.ratingsCount = ratingsCount;
+  }
+
   let fetch = (url) => {
     if (!url) { return Promise.resolve() };
 
@@ -37,18 +44,25 @@
 
     return fetchUrlsOfMovies };
 
-  let getMovieWithRating = (movies) => {
+  let getMovieWithRating = movies => {
+    let $ = (page, selector) => {
+      let el = page.querySelector(selector);
+      let nullEl = { textContent: "n/a" }
+      return el || nullEl
+    };
+
     let extractInfos = page => {
       if (!page) { return ['n/a', 'n/a', ''] };
-      let title = page.querySelector('#overview-top .header').textContent;
-      let rating = page.querySelector('#overview-top .star-box div').textContent;
-      return [title, rating, unproxify(page.URL)] };
+      let title = $(page, '#overview-top .header').textContent;
+      let rating = $(page, '#overview-top .star-box-details strong').textContent;
+      let ratingsCount = $(page, '#overview-top .star-box-details > a').textContent;
+      return new MovieInfos(title, rating, unproxify(page.URL), ratingsCount) };
 
     return movies.map(([yorckTitle, urlP]) => [yorckTitle, urlP.then(fetch).then(extractInfos)]);
   };
 
   let moviesEl = document.getElementById("movies");
-  let showOnPage = (yorckTitle, infos) => moviesEl.innerHTML += `${yorckTitle} – ${infos[0]} <a href='${infos[2]}'>${infos[1]}</a><br>`;
+  let showOnPage = (yorckTitle, infos) => moviesEl.innerHTML += `${yorckTitle} – ${infos.title} <a href='${infos.url}'>${infos.rating} (${infos.ratingsCount})</a><br>`;
 
   let movies = getYorckMovies();
   let pages = movies.then(getImdbPages);
