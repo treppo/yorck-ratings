@@ -123,7 +123,7 @@ function _slicedToArray(arr, i) { if (Array.isArray(arr)) { return arr; } else i
   };
 
   (function callee$1$0() {
-    var moviesEl, showOnPage, titles, info;
+    var moviesEl, showOnPage, isNotSneakPreview;
     return regeneratorRuntime.async(function callee$1$0$(context$2$0) {
       while (1) switch (context$2$0.prev = context$2$0.next) {
         case 0:
@@ -133,16 +133,17 @@ function _slicedToArray(arr, i) { if (Array.isArray(arr)) { return arr; } else i
             return moviesEl.innerHTML += '' + yorckTitle + ' – ' + infos.title + ' <a href=\'' + infos.url + '\'>' + infos.rating + ' (' + infos.ratingsCount + ')</a><br>';
           };
 
-          context$2$0.next = 4;
+          isNotSneakPreview = function isNotSneakPreview(title) {
+            return !title.startsWith('Sneak');
+          };
+
+          context$2$0.next = 5;
           return regeneratorRuntime.awrap(yorckTitles());
 
-        case 4:
-          titles = context$2$0.sent;
-          info = titles.map(function (t) {
+        case 5:
+          context$2$0.sent.filter(isNotSneakPreview).map(function (t) {
             return [t, getMovieWithRating(t)];
-          });
-
-          info.forEach(function callee$2$0(_ref) {
+          }).forEach(function callee$2$0(_ref) {
             var _ref2 = _slicedToArray(_ref, 2);
 
             var title = _ref2[0];
@@ -164,7 +165,7 @@ function _slicedToArray(arr, i) { if (Array.isArray(arr)) { return arr; } else i
             }, null, this);
           });
 
-        case 7:
+        case 6:
         case 'end':
           return context$2$0.stop();
       }
