@@ -10,13 +10,6 @@ function _slicedToArray(arr, i) { if (Array.isArray(arr)) { return arr; } else i
     return url.replace(/http:\/\/crossorigin.me\//, '');
   };
 
-  function MovieInfos(title, rating, url, ratingsCount) {
-    this.title = title;
-    this.rating = rating;
-    this.url = url;
-    this.ratingsCount = ratingsCount;
-  }
-
   var fetch = function fetch(url) {
     if (!url) {
       return Promise.resolve();
@@ -64,11 +57,27 @@ function _slicedToArray(arr, i) { if (Array.isArray(arr)) { return arr; } else i
   };
 
   function getMovieWithRating(yorckTitle) {
-    var imdbUrl, getMovieUrl, toSearchUrl, searchPage, url, $, moviePage, imdbTitle, rating, ratingsCount;
+    var MovieInfos, imdbUrl, toSearchUrl, getMovieUrl, movieInfos, searchPage, url, moviePage;
     return regeneratorRuntime.async(function getMovieWithRating$(context$2$0) {
       while (1) switch (context$2$0.prev = context$2$0.next) {
         case 0:
+          MovieInfos = function MovieInfos() {
+            var title = arguments[0] === undefined ? 'n/a' : arguments[0];
+            var rating = arguments[1] === undefined ? 'n/a' : arguments[1];
+            var url = arguments[2] === undefined ? '' : arguments[2];
+            var ratingsCount = arguments[3] === undefined ? '' : arguments[3];
+
+            this.title = title;
+            this.rating = rating;
+            this.url = url;
+            this.ratingsCount = ratingsCount;
+          };
+
           imdbUrl = 'http://www.imdb.com';
+
+          toSearchUrl = function toSearchUrl(movie) {
+            return '' + imdbUrl + '/find?s=tt&q=' + encodeURIComponent(movie);
+          };
 
           getMovieUrl = function getMovieUrl(page) {
             var a = page.querySelector('.findList .result_text a');
@@ -78,69 +87,65 @@ function _slicedToArray(arr, i) { if (Array.isArray(arr)) { return arr; } else i
             return imdbUrl + a.pathname;
           };
 
-          toSearchUrl = function toSearchUrl(movie) {
-            return '' + imdbUrl + '/find?s=tt&q=' + encodeURIComponent(movie);
+          movieInfos = function movieInfos(page) {
+            var $ = function $(page, selector) {
+              return page.querySelector(selector) || { textContent: 'n/a' };
+            };
+            var imdbTitle = $(page, '#overview-top .header').textContent;
+            var rating = $(page, '#overview-top .star-box-details strong').textContent;
+            var ratingsCount = $(page, '#overview-top .star-box-details > a').textContent;
+
+            return new MovieInfos(imdbTitle, rating, unproxify(page.URL), ratingsCount);
           };
 
-          context$2$0.next = 5;
+          context$2$0.next = 7;
           return regeneratorRuntime.awrap(fetch(toSearchUrl(yorckTitle)));
 
-        case 5:
+        case 7:
           searchPage = context$2$0.sent;
           url = getMovieUrl(searchPage);
-
-          $ = function $(page, selector) {
-            var el = page.querySelector(selector);
-            var nullEl = { textContent: 'n/a' };
-            return el || nullEl;
-          };
-
-          context$2$0.next = 10;
+          context$2$0.next = 11;
           return regeneratorRuntime.awrap(fetch(url));
 
-        case 10:
+        case 11:
           moviePage = context$2$0.sent;
-          imdbTitle = $(moviePage, '#overview-top .header').textContent;
-          rating = $(moviePage, '#overview-top .star-box-details strong').textContent;
-          ratingsCount = $(moviePage, '#overview-top .star-box-details > a').textContent;
 
           if (moviePage) {
-            context$2$0.next = 16;
+            context$2$0.next = 14;
             break;
           }
 
-          return context$2$0.abrupt('return', ['n/a', 'n/a', '', '']);
+          return context$2$0.abrupt('return', new MovieInfos());
+
+        case 14:
+          ;
+          return context$2$0.abrupt('return', movieInfos(moviePage));
 
         case 16:
-          ;
-          return context$2$0.abrupt('return', new MovieInfos(imdbTitle, rating, unproxify(moviePage.URL), ratingsCount));
-
-        case 18:
         case 'end':
           return context$2$0.stop();
       }
     }, null, this);
   };
 
+  var showOnPage = function showOnPage(yorckTitle, infos) {
+    var moviesEl = document.getElementById('movies');
+    moviesEl.innerHTML += '' + yorckTitle + ' – ' + infos.title + ' <a href=\'' + infos.url + '\'>' + infos.rating + ' (' + infos.ratingsCount + ')</a><br>';
+  };
+
   (function callee$1$0() {
-    var moviesEl, showOnPage, isNotSneakPreview;
+    var isNotSneakPreview;
     return regeneratorRuntime.async(function callee$1$0$(context$2$0) {
       while (1) switch (context$2$0.prev = context$2$0.next) {
         case 0:
-          moviesEl = document.getElementById('movies');
-
-          showOnPage = function showOnPage(yorckTitle, infos) {
-            return moviesEl.innerHTML += '' + yorckTitle + ' – ' + infos.title + ' <a href=\'' + infos.url + '\'>' + infos.rating + ' (' + infos.ratingsCount + ')</a><br>';
-          };
-
           isNotSneakPreview = function isNotSneakPreview(title) {
             return !title.startsWith('Sneak');
           };
 
-          context$2$0.next = 5;
+          context$2$0.next = 3;
           return regeneratorRuntime.awrap(yorckTitles());
 
-        case 5:
+        case 3:
           context$2$0.sent.filter(isNotSneakPreview).map(function (t) {
             return [t, getMovieWithRating(t)];
           }).forEach(function callee$2$0(_ref) {
@@ -165,7 +170,7 @@ function _slicedToArray(arr, i) { if (Array.isArray(arr)) { return arr; } else i
             }, null, this);
           });
 
-        case 6:
+        case 4:
         case 'end':
           return context$2$0.stop();
       }
