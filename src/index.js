@@ -1,5 +1,4 @@
 (global => {
-  let unbox = f => p => p.then(f);
   let proxify = url => 'http://crossorigin.me/' + url;
   let unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
 
@@ -67,7 +66,7 @@
     let showOnPage = (yorckTitle, infos) => moviesEl.innerHTML += `${yorckTitle} – ${infos.title} <a href='${infos.url}'>${infos.rating} (${infos.ratingsCount})</a><br>`;
 
     let titles = await yorckTitles();
-    let info = titles.map(getMovieWithRating);
-    info.forEach(async function(i){ showOnPage('', await i); });
+    let info = titles.map(t => [t, getMovieWithRating(t)]);
+    info.forEach(async function([title, i]){ showOnPage(title, await i); });
   })()
 })(this);

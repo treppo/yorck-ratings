@@ -1,11 +1,8 @@
 'use strict';
 
+function _slicedToArray(arr, i) { if (Array.isArray(arr)) { return arr; } else if (Symbol.iterator in Object(arr)) { var _arr = []; var _n = true; var _d = false; var _e = undefined; try { for (var _i = arr[Symbol.iterator](), _s; !(_n = (_s = _i.next()).done); _n = true) { _arr.push(_s.value); if (i && _arr.length === i) break; } } catch (err) { _d = true; _e = err; } finally { try { if (!_n && _i['return']) _i['return'](); } finally { if (_d) throw _e; } } return _arr; } else { throw new TypeError('Invalid attempt to destructure non-iterable instance'); } }
+
 (function (global) {
-  var unbox = function unbox(f) {
-    return function (p) {
-      return p.then(f);
-    };
-  };
   var proxify = function proxify(url) {
     return 'http://crossorigin.me/' + url;
   };
@@ -141,9 +138,15 @@
 
         case 4:
           titles = context$2$0.sent;
-          info = titles.map(getMovieWithRating);
+          info = titles.map(function (t) {
+            return [t, getMovieWithRating(t)];
+          });
 
-          info.forEach(function callee$2$0(i) {
+          info.forEach(function callee$2$0(_ref) {
+            var _ref2 = _slicedToArray(_ref, 2);
+
+            var title = _ref2[0];
+            var i = _ref2[1];
             return regeneratorRuntime.async(function callee$2$0$(context$3$0) {
               while (1) switch (context$3$0.prev = context$3$0.next) {
                 case 0:
@@ -152,7 +155,7 @@
 
                 case 2:
                   context$3$0.t0 = context$3$0.sent;
-                  showOnPage('', context$3$0.t0);
+                  showOnPage(title, context$3$0.t0);
 
                 case 4:
                 case 'end':
