@@ -1,3 +1,3 @@
 #! /bin/sh
 
-babel src/index.js --stage 1 --watch -o dist/index.js --source-maps
+./node_modules/.bin/watchify src/index.js -v -o './node_modules/.bin/exorcist dist/index.js.map > dist/index.js' --debug
