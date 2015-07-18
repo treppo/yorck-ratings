@@ -1,14 +1,12 @@
 const csp = require('js-csp');
 const _ = require('underscore');
+const Maybe = require('data.maybe');
 
 const proxify = url => 'http://crossorigin.me/' + url;
 const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
 
 const fetch = (url) => {
   const ch = csp.chan();
-
-  if (!url) { return csp.putAsync(ch, new Error('no url given')); }
-
   const req = new XMLHttpRequest();
   req.onload = () => {
     if (req.status == 200) { csp.putAsync(ch, req.responseXML); }
@@ -30,6 +28,9 @@ const yorckTitles = () => csp.go(function*() {
 });
 
 const getMovieWithRating = (yorckTitle) => csp.go(function*() {
+  const imdbUrl = "http://www.imdb.com";
+  const toSearchUrl = movie => `${imdbUrl}/find?s=tt&q=${encodeURIComponent(movie)}`;
+
   function MovieInfos(title = 'n/a', rating = 'n/a', url = '', ratingsCount = '') {
     this.title = title;
     this.rating = rating;
@@ -37,34 +38,35 @@ const getMovieWithRating = (yorckTitle) => csp.go(function*() {
     this.ratingsCount = ratingsCount;
   }
 
-  const imdbUrl = "http://www.imdb.com";
-  const toSearchUrl = movie => `${imdbUrl}/find?s=tt&q=${encodeURIComponent(movie)}`;
-
-  const getMovieUrl = page => {
-    const a = page.querySelector('.findList .result_text a');
-    if (!a) { return '' }
-    return imdbUrl + a.pathname
+  const extractMoviePathname = page => {
+    const aEl = page.querySelector('.findList .result_text a');
+    return Maybe.fromNullable(aEl).map(_ => _.pathname)
   };
-  const movieInfos = page => {
-    const $ = (page, selector) => page.querySelector(selector) || { textContent: "n/a" };
+
+  const extractMovieInfos = pageChannel => csp.go(function*() {
+    const page = yield csp.take(pageChannel);
+
+    const $ = (doc, selector) => doc.querySelector(selector) || { textContent: "n/a" };
     const imdbTitle = $(page, '#overview-top .header').textContent;
     const rating = $(page, '#overview-top .star-box-details strong').textContent;
     const ratingsCount = $(page, '#overview-top .star-box-details > a').textContent;
 
     return new MovieInfos(imdbTitle, rating, unproxify(page.URL), ratingsCount);
-  };
+  });
 
   const searchPage = yield csp.take(fetch(toSearchUrl(yorckTitle)));
-  const url = getMovieUrl(searchPage);
-  const moviePage = yield csp.take(fetch(url));
 
-  if (!moviePage) { return [yorckTitle, new MovieInfos()] }
-  return [yorckTitle, movieInfos(moviePage)];
+  return [yorckTitle, extractMoviePathname(searchPage)
+    .map(pathname => imdbUrl + pathname)
+    .map(fetch)
+    .map(extractMovieInfos)
+    .getOrElse(new MovieInfos())];
 });
 
 const showOnPage = (infoCh) => csp.go(function*() {
   const moviesEl = document.getElementById("movies");
-  const [yorckTitle, infos] = yield csp.take(infoCh);
+  const [yorckTitle, infosCh] = yield csp.take(infoCh);
+  const infos = yield csp.take(infosCh);
   moviesEl.innerHTML += `${yorckTitle} – ${infos.title} <a href='${infos.url}'>${infos.rating} (${infos.ratingsCount})</a><br>`;
 });
 
