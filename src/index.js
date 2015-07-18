@@ -1,4 +1,5 @@
-const csp = require("js-csp");
+const csp = require('js-csp');
+const _ = require('underscore');
 
 const proxify = url => 'http://crossorigin.me/' + url;
 const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
@@ -6,7 +7,7 @@ const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
 const fetch = (url) => {
   const ch = csp.chan();
 
-  if (!url) { return csp.putAsync(ch, new Error('no url given')); };
+  if (!url) { return csp.putAsync(ch, new Error('no url given')); }
 
   const req = new XMLHttpRequest();
   req.onload = () => {
@@ -24,9 +25,8 @@ const yorckTitles = () => csp.go(function*() {
   const url = "http://www.yorck.de/mobile/filme";
   const page = yield csp.take(fetch(url));
   const els = page.querySelectorAll('.films a');
-  const movieList = [].slice.call(els).map(_ => _.textContent);
 
-  return movieList;
+  return _.map(els, _ => _.textContent);
 });
 
 const getMovieWithRating = (yorckTitle) => csp.go(function*() {
@@ -35,14 +35,14 @@ const getMovieWithRating = (yorckTitle) => csp.go(function*() {
     this.rating = rating;
     this.url = url;
     this.ratingsCount = ratingsCount;
-  };
+  }
 
   const imdbUrl = "http://www.imdb.com";
   const toSearchUrl = movie => `${imdbUrl}/find?s=tt&q=${encodeURIComponent(movie)}`;
 
   const getMovieUrl = page => {
     const a = page.querySelector('.findList .result_text a');
-    if (!a) { return '' };
+    if (!a) { return '' }
     return imdbUrl + a.pathname
   };
   const movieInfos = page => {
@@ -58,21 +58,21 @@ const getMovieWithRating = (yorckTitle) => csp.go(function*() {
   const url = getMovieUrl(searchPage);
   const moviePage = yield csp.take(fetch(url));
 
-  if (!moviePage) { return new MovieInfos() };
-  return movieInfos(moviePage);
+  if (!moviePage) { return [yorckTitle, new MovieInfos()] }
+  return [yorckTitle, movieInfos(moviePage)];
 });
 
-const showOnPage = (yorckTitle, infoCh) => csp.go(function*() {
+const showOnPage = (infoCh) => csp.go(function*() {
   const moviesEl = document.getElementById("movies");
-  const infos = yield csp.take(infoCh);
+  const [yorckTitle, infos] = yield csp.take(infoCh);
   moviesEl.innerHTML += `${yorckTitle} – ${infos.title} <a href='${infos.url}'>${infos.rating} (${infos.ratingsCount})</a><br>`;
 });
 
 csp.go(function*() {
-  const isNotSneakPreview = title => !title.startsWith('Sneak');
+  const isSneakPreview = title => title.startsWith('Sneak');
 
-  (yield csp.take(yorckTitles()))
-    .filter(isNotSneakPreview)
-    .map(t => [t, getMovieWithRating(t)])
-    .forEach(function([title, iCh]){ showOnPage(title, iCh); });
+  _.chain(yield csp.take(yorckTitles()))
+    .reject(isSneakPreview)
+    .map(getMovieWithRating)
+    .forEach(showOnPage);
 });
