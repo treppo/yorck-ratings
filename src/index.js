@@ -1,6 +1,7 @@
 const csp = require('js-csp');
 const _ = require('underscore');
 const Maybe = require('data.maybe');
+const Either = require('data.either');
 
 const proxify = url => 'http://crossorigin.me/' + url;
 const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
@@ -19,12 +20,23 @@ const fetch = (url) => {
   return ch;
 };
 
-const yorckTitles = () => csp.go(function*() {
-  const url = "http://www.yorck.de/mobile/filme";
-  const page = yield csp.take(fetch(url));
-  const els = page.querySelectorAll('.films a');
+const fetchEither = (url) => {
+  const ch = csp.chan();
+  const req = new XMLHttpRequest();
+  req.onload = () => csp.putAsync(ch,
+      req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
+  req.open("GET", proxify(url), true);
+  req.responseType = "document";
+  req.overrideMimeType("text/html");
+  req.send();
+  return ch;
+};
 
-  return _.map(els, _ => _.textContent);
+const yorckTitles = () => csp.go(function*() {
+  const yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
+  const extractTitles = p => _.map(p.querySelectorAll('.films a'), el => el.textContent);
+  const pageEither = yield csp.take(fetchEither(yorckFilmsUrl));
+  return pageEither.map(extractTitles);
 });
 
 const getMovieWithRating = (yorckTitle) => csp.go(function*() {
@@ -70,11 +82,16 @@ const showOnPage = (infoCh) => csp.go(function*() {
   moviesEl.innerHTML += `${yorckTitle} – ${infos.title} <a href='${infos.url}'>${infos.rating} (${infos.ratingsCount})</a><br>`;
 });
 
+const showYorckPageLoadError = errorMessage => errorMessage;
+
 csp.go(function*() {
   const isSneakPreview = title => title.startsWith('Sneak');
+  const titlesEither = yield csp.take(yorckTitles());
 
-  _.chain(yield csp.take(yorckTitles()))
-    .reject(isSneakPreview)
-    .map(getMovieWithRating)
-    .forEach(showOnPage);
+  titlesEither
+    .map(titles => _.chain(titles)
+      .reject(isSneakPreview)
+      .map(getMovieWithRating)
+      .forEach(showOnPage))
+    .orElse(showYorckPageLoadError);
 });
