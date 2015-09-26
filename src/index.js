@@ -6,12 +6,38 @@ const Either = require('data.either');
 const proxify = url => 'http://crossorigin.me/' + url;
 const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
 
-const fetch = (url) => {
+const future = function (f) {
+  return {
+    await: function (k) {
+      return f(k);
+    },
+    map: function (g) {
+      return future(function (k) {
+        return f(function (x) {
+          return k(g(x));
+        });
+      });
+    },
+    flatMap: function (g) {
+      return future(function (k) {
+        return f(function (x) {
+          return g(x).await(k);
+        });
+      });
+    }
+  };
+};
+
+const fetch = url => {
   const ch = csp.chan();
   const req = new XMLHttpRequest();
   req.onload = () => {
-    if (req.status == 200) { csp.putAsync(ch, req.responseXML); }
-    else { csp.putAsync(ch, new Error(req.statusText)); }
+    if (req.status == 200) {
+      csp.putAsync(ch, req.responseXML);
+    }
+    else {
+      csp.putAsync(ch, new Error(req.statusText));
+    }
   };
   req.open("GET", proxify(url), true);
   req.responseType = "document";
@@ -20,11 +46,21 @@ const fetch = (url) => {
   return ch;
 };
 
+const fetchFuture = url => f => {
+  const req = new XMLHttpRequest();
+  req.onload = () =>
+    f(req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
+  req.open("GET", proxify(url), true);
+  req.responseType = "document";
+  req.overrideMimeType("text/html");
+  req.send();
+};
+
 const fetchEither = (url) => {
   const ch = csp.chan();
   const req = new XMLHttpRequest();
   req.onload = () => csp.putAsync(ch,
-      req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
+    req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
   req.open("GET", proxify(url), true);
   req.responseType = "document";
   req.overrideMimeType("text/html");
@@ -32,7 +68,7 @@ const fetchEither = (url) => {
   return ch;
 };
 
-const yorckTitles = () => csp.go(function*() {
+const yorckTitles = () => {
   const yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
   const extractTitles = p => _.map(p.querySelectorAll('.films a'), el => el.textContent);
   const rotateArticle = title => {
@@ -46,9 +82,14 @@ const yorckTitles = () => csp.go(function*() {
       return title
     }
   };
-  const pageEither = yield csp.take(fetchEither(yorckFilmsUrl));
-  return pageEither.map(extractTitles).map(titles => titles.map(rotateArticle));
-});
+  const pageEitherFuture = future(fetchFuture(yorckFilmsUrl));
+
+  return pageEitherFuture
+    .map(pageEither => pageEither.map(extractTitles))
+    .map(titlesEither =>
+      titlesEither.map(titles =>
+        titles.map(rotateArticle)));
+};
 
 const getMovieWithRating = (yorckTitle) => csp.go(function*() {
   const imdbUrl = "http://www.imdb.com";
@@ -69,7 +110,7 @@ const getMovieWithRating = (yorckTitle) => csp.go(function*() {
   const extractMovieInfos = pageChannel => csp.go(function*() {
     const page = yield csp.take(pageChannel);
 
-    const $ = (doc, selector) => doc.querySelector(selector) || { textContent: "n/a" };
+    const $ = (doc, selector) => doc.querySelector(selector) || {textContent: "n/a"};
     const imdbTitle = $(page, '#overview-top .header').textContent;
     const rating = $(page, '#overview-top .star-box-details strong').textContent;
     const ratingsCount = $(page, '#overview-top .star-box-details > a').textContent;
@@ -96,11 +137,11 @@ const showOnPage = (infoCh) => csp.go(function*() {
 const showYorckPageLoadError = errorMessage =>
   document.getElementById("movies").innerHTML = errorMessage;
 
-csp.go(function*() {
-  const isSneakPreview = title => title.startsWith('Sneak');
-  const titlesEither = yield csp.take(yorckTitles());
+const isSneakPreview = title => title.startsWith('Sneak');
+const titlesEitherFuture = yorckTitles();
 
-  titlesEither
+titlesEitherFuture.await(titlesEither => {
+  return titlesEither
     .map(titles => _.chain(titles)
       .reject(isSneakPreview)
       .map(getMovieWithRating)
