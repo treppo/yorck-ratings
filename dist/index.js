@@ -4336,8 +4336,19 @@ const fetchEither = (url) => {
 const yorckTitles = () => csp.go(function*() {
   const yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
   const extractTitles = p => _.map(p.querySelectorAll('.films a'), el => el.textContent);
+  const rotateArticle = title => {
+    if (title.indexOf(', Der') !== -1) {
+      return 'Der ' + title.replace(', Der', '')
+    } else if (title.indexOf(', Die') !== -1) {
+      return 'Die ' + title.replace(', Die', '')
+    } else if (title.indexOf(', Das') !== -1) {
+      return 'Das ' + title.replace(', Das', '')
+    } else {
+      return title
+    }
+  };
   const pageEither = yield csp.take(fetchEither(yorckFilmsUrl));
-  return pageEither.map(extractTitles);
+  return pageEither.map(extractTitles).map(titles => titles.map(rotateArticle));
 });
 
 const getMovieWithRating = (yorckTitle) => csp.go(function*() {
