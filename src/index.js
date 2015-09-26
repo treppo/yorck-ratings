@@ -28,25 +28,7 @@ const future = function (f) {
   };
 };
 
-const fetch = url => {
-  const ch = csp.chan();
-  const req = new XMLHttpRequest();
-  req.onload = () => {
-    if (req.status == 200) {
-      csp.putAsync(ch, req.responseXML);
-    }
-    else {
-      csp.putAsync(ch, new Error(req.statusText));
-    }
-  };
-  req.open("GET", proxify(url), true);
-  req.responseType = "document";
-  req.overrideMimeType("text/html");
-  req.send();
-  return ch;
-};
-
-const fetchFuture = url => f => {
+const fetch = url => f => {
   const req = new XMLHttpRequest();
   req.onload = () =>
     f(req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
@@ -54,18 +36,6 @@ const fetchFuture = url => f => {
   req.responseType = "document";
   req.overrideMimeType("text/html");
   req.send();
-};
-
-const fetchEither = (url) => {
-  const ch = csp.chan();
-  const req = new XMLHttpRequest();
-  req.onload = () => csp.putAsync(ch,
-    req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
-  req.open("GET", proxify(url), true);
-  req.responseType = "document";
-  req.overrideMimeType("text/html");
-  req.send();
-  return ch;
 };
 
 const yorckTitles = () => {
@@ -82,7 +52,7 @@ const yorckTitles = () => {
       return title
     }
   };
-  const pageEitherFuture = future(fetchFuture(yorckFilmsUrl));
+  const pageEitherFuture = future(fetch(yorckFilmsUrl));
 
   return pageEitherFuture
     .map(pageEither => pageEither.map(extractTitles))
@@ -91,7 +61,7 @@ const yorckTitles = () => {
         titles.map(rotateArticle)));
 };
 
-const getMovieWithRating = (yorckTitle) => csp.go(function*() {
+const getMovieWithRating = (yorckTitle) => {
   const imdbUrl = "http://www.imdb.com";
   const toSearchUrl = movie => `${imdbUrl}/find?s=tt&q=${encodeURIComponent(movie)}`;
 
@@ -107,32 +77,37 @@ const getMovieWithRating = (yorckTitle) => csp.go(function*() {
     return Maybe.fromNullable(aEl).map(_ => _.pathname)
   };
 
-  const extractMovieInfos = pageChannel => csp.go(function*() {
-    const page = yield csp.take(pageChannel);
-
+  const extractMovieInfos = page => {
     const $ = (doc, selector) => doc.querySelector(selector) || {textContent: "n/a"};
     const imdbTitle = $(page, '#overview-top .header').textContent;
     const rating = $(page, '#overview-top .star-box-details strong').textContent;
     const ratingsCount = $(page, '#overview-top .star-box-details > a').textContent;
 
     return new MovieInfos(imdbTitle, rating, unproxify(page.URL), ratingsCount);
-  });
+  };
 
-  const searchPage = yield csp.take(fetch(toSearchUrl(yorckTitle)));
+  const searchPageEitherFuture = future(fetch(toSearchUrl(yorckTitle)));
 
-  return [yorckTitle, extractMoviePathname(searchPage)
-    .map(pathname => imdbUrl + pathname)
-    .map(fetch)
-    .map(extractMovieInfos)
-    .getOrElse(new MovieInfos())];
-});
+  return searchPageEitherFuture.map(searchPageEither =>
+      searchPageEither
+        .map(searchPage =>
+          extractMoviePathname(searchPage)
+            .map(pathname => imdbUrl + pathname)
+            .map(fetch)
+            .map(future)
+            .map(pageEitherFuture =>
+              pageEitherFuture.map(pageEither =>
+                pageEither
+                  .map(extractMovieInfos)
+                  .map(infos => [yorckTitle, infos])))
+            .getOrElse(future(_ => [yorckTitle, new MovieInfos()]))));
+};
 
-const showOnPage = (infoCh) => csp.go(function*() {
+const showOnPage = (entry) => {
   const moviesEl = document.getElementById("movies");
-  const [yorckTitle, infosCh] = yield csp.take(infoCh);
-  const infos = yield csp.take(infosCh);
-  moviesEl.innerHTML += `${yorckTitle} – ${infos.title} <a href='${infos.url}'>${infos.rating} (${infos.ratingsCount})</a><br>`;
-});
+  const [yorckTitle, infos] = entry;
+  moviesEl.innerHTML += `${yorckTitle} – ${infos.title} <a href='${infos.url}'>${infos.rating} (${infos.ratingsCount})</a><br>`
+};
 
 const showYorckPageLoadError = errorMessage =>
   document.getElementById("movies").innerHTML = errorMessage;
@@ -145,6 +120,11 @@ titlesEitherFuture.await(titlesEither => {
     .map(titles => _.chain(titles)
       .reject(isSneakPreview)
       .map(getMovieWithRating)
-      .forEach(showOnPage))
+      .map(entryEitherFutureEitherFuture =>
+        entryEitherFutureEitherFuture.await(entryEitherFutureEither =>
+          entryEitherFutureEither.map(entryEitherFuture =>
+            entryEitherFuture.await(entryEither =>
+              entryEither
+                .map(showOnPage))))))
     .orElse(showYorckPageLoadError);
 });
