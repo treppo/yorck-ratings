@@ -93,7 +93,8 @@ const showOnPage = (infoCh) => csp.go(function*() {
   moviesEl.innerHTML += `${yorckTitle} – ${infos.title} <a href='${infos.url}'>${infos.rating} (${infos.ratingsCount})</a><br>`;
 });
 
-const showYorckPageLoadError = errorMessage => errorMessage;
+const showYorckPageLoadError = errorMessage =>
+  document.getElementById("movies").innerHTML = errorMessage;
 
 csp.go(function*() {
   const isSneakPreview = title => title.startsWith('Sneak');
