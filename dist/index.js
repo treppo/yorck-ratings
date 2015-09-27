@@ -4307,15 +4307,29 @@ const Either = require('data.either');
 const proxify = url => 'http://crossorigin.me/' + url;
 const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
 
-const future = f => {
+const Future = f => {
   return {
-    await: k => f(k),
-    map: g => future(k => f(x => k(g(x)))),
-    flatMap: g => future(k => f(x => g(x).await(k)))
+    await: () => f(k => k),
+    map: g => Future(k => f(result => k(g(result)))),
+    flatMap: future => Future(k => f(result => future(result).await(k)))
   }
 };
 
-const fetch = url => future(f => {
+const FutureEither = future => {
+  return {
+    future: future,
+    await: future.await,
+    map: fe => FutureEither(future.map(either =>
+      either.isLeft ? either : Either.Right(fe(either.get())))),
+    flatMap: eitherToFE => {
+      const result = future.flatMap(either =>
+        either.isLeft ? Future(_ => either) : eitherToFE(either.get()).future);
+      return Future(result)
+    }
+  }
+};
+
+const fetch = url => Future(f => {
   const req = new XMLHttpRequest();
   req.onload = () =>
     f(req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
@@ -4364,12 +4378,11 @@ const getYorckInfos = () => {
   const extractInfos = p => _(p.querySelectorAll('.films a')).map(el => {
     return YorckInfos(rotateArticle(el.textContent), el.href) });
 
-  const pageEitherFuture = fetch(yorckFilmsUrl);
-  return pageEitherFuture
-    .map(pageEither => pageEither.map(extractInfos))
+  const pageEitherFuture = FutureEither(fetch(yorckFilmsUrl));
+  return pageEitherFuture.map(page => extractInfos(page))
 };
 
-const getMovieWithRating = (yorckInfos) => {
+const getMovie = (yorckInfos) => {
   const imdbUrl = "http://www.imdb.com";
   const toSearchUrl = movie => `${imdbUrl}/find?s=tt&q=${encodeURIComponent(movie)}`;
 
@@ -4394,12 +4407,10 @@ const getMovieWithRating = (yorckInfos) => {
     searchPageEither
       .map(searchPage =>
         extractMoviePathname(searchPage)
-          .map(pathname => fetch(imdbUrl + pathname))
-          .map(pageEitherFuture =>
-            pageEitherFuture.map(pageEither =>
-              pageEither
-                .map(page => Movie(yorckInfos, extractMovieInfos(page)))))
-          .getOrElse(future(_ => Movie(yorckInfos, ImdbInfos())))));
+          .map(pathname => FutureEither(fetch(imdbUrl + pathname)))
+          .map(pageFutureEither =>
+            pageFutureEither.map(page => Movie(yorckInfos, extractMovieInfos(page))))
+          .getOrElse(FutureEither(Future(_ => Movie(yorckInfos, ImdbInfos()))))));
 };
 
 const showOnPage = (movie) => {
@@ -4421,8 +4432,7 @@ const showPageLoadError = errorMessage =>
   document.getElementById("errors").innerHTML += errorMessage;
 
 const isSneakPreview = infos => infos.title.startsWith('Sneak');
-const titlesEitherFuture = getYorckInfos();
-
+const yorckInfosEitherFuture = getYorckInfos();
 const movies = function () {
   let list = [];
   return {
@@ -4434,21 +4444,20 @@ const movies = function () {
   }
 }();
 
-titlesEitherFuture.await(titlesEither =>
-  titlesEither
-    .map(titles => _.chain(titles)
+yorckInfosEitherFuture
+  .map(yorckInfos =>
+    _(yorckInfos)
       .reject(isSneakPreview)
-      .map(getMovieWithRating)
-      .map(searchResultFuture =>
-        searchResultFuture.await(searchResultEither =>
-          searchResultEither
-            .map(movieFuture =>
-              movieFuture.await(movieEither =>
-                movieEither
-                  .map(movies.add)
-                  .orElse(showPageLoadError)))
-            .orElse(showPageLoadError))))
-    .orElse(showPageLoadError));
-
+      .map(getMovie))
+  .map(resultFutures =>
+    resultFutures.map(resultFuture =>
+      resultFuture
+        .map(resultEither =>
+          resultEither.map(movieFutureEither =>
+            movieFutureEither
+              .map(movie => movies.add(movie))
+              .await()))
+        .await()))
+  .await();
 },{"data.either":2,"data.maybe":3,"js-csp":6,"underscore":15}]},{},[16])
 //# sourceMappingURL=index.js.map
