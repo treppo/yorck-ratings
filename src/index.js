@@ -10,8 +10,7 @@ const future = f => {
   return {
     await: k => f(k),
     map: g => future(k => f(x => k(g(x)))),
-    flatMap: g => future(k => f(x => g(x).await(k))),
-    chain: g => g(f)
+    flatMap: g => future(k => f(x => g(x).await(k)))
   }
 };
 
@@ -25,47 +24,53 @@ const fetch = url => future(f => {
   req.send();
 });
 
-const yorckTitles = () => {
+const YorckInfos = (title, url) => {
+  return {
+    title: title,
+    url: url
+  }
+};
+
+const ImdbInfos = (title = 'n/a', rating = 'n/a', url = '', ratingsCount = '') => {
+  return {
+    title: title,
+    rating: rating,
+    url: url,
+    ratingsCount: ratingsCount
+  }
+};
+
+const Movie = (yorckInfos, imdbInfos) => {
+  return {
+    yorck: yorckInfos,
+    imdb: imdbInfos
+  }
+};
+
+const getYorckInfos = () => {
   const yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
-  const extractTitles = p => _.map(p.querySelectorAll('.films a'), el => el.textContent);
   const rotateArticle = title => {
-    if (title.indexOf(', Der') !== -1) {
+    if (title.includes(', Der')) {
       return 'Der ' + title.replace(', Der', '')
-    } else if (title.indexOf(', Die') !== -1) {
+    } else if (title.includes(', Die')) {
       return 'Die ' + title.replace(', Die', '')
-    } else if (title.indexOf(', Das') !== -1) {
+    } else if (title.includes(', Das')) {
       return 'Das ' + title.replace(', Das', '')
     } else {
       return title
     }
   };
-  const pageEitherFuture = fetch(yorckFilmsUrl);
+  const extractInfos = p => _(p.querySelectorAll('.films a')).map(el => {
+    return YorckInfos(rotateArticle(el.textContent), el.href) });
 
+  const pageEitherFuture = fetch(yorckFilmsUrl);
   return pageEitherFuture
-    .map(pageEither => pageEither.map(extractTitles))
-    .map(titlesEither =>
-      titlesEither.map(titles =>
-        titles.map(rotateArticle)));
+    .map(pageEither => pageEither.map(extractInfos))
 };
 
-const getMovieWithRating = (yorckTitle) => {
+const getMovieWithRating = (yorckInfos) => {
   const imdbUrl = "http://www.imdb.com";
   const toSearchUrl = movie => `${imdbUrl}/find?s=tt&q=${encodeURIComponent(movie)}`;
-
-  function ImdbInfos(title = 'n/a', rating = 'n/a', url = '', ratingsCount = '') {
-    this.title = title;
-    this.rating = rating;
-    this.url = url;
-    this.ratingsCount = ratingsCount;
-  }
-
-  function Movie(yorckTitle, imdbInfos) {
-    this.yorckTitle = yorckTitle;
-    this.imdbTitle = imdbInfos.title;
-    this.rating = imdbInfos.rating;
-    this.imdbUrl = imdbInfos.url;
-    this.ratingsCount = imdbInfos.ratingsCount;
-  }
 
   const extractMoviePathname = page => {
     const aEl = page.querySelector('.findList .result_text a');
@@ -79,10 +84,10 @@ const getMovieWithRating = (yorckTitle) => {
     const ratingsCount = $(page, '#overview-top .star-box-details > a').textContent;
     const normalizedRating = isNaN(rating) ? 0 : rating;
 
-    return new ImdbInfos(imdbTitle, normalizedRating, unproxify(page.URL), ratingsCount);
+    return ImdbInfos(imdbTitle, normalizedRating, unproxify(page.URL), ratingsCount);
   };
 
-  const searchPageEitherFuture = fetch(toSearchUrl(yorckTitle));
+  const searchPageEitherFuture = fetch(toSearchUrl(yorckInfos.title));
 
   return searchPageEitherFuture.map(searchPageEither =>
     searchPageEither
@@ -92,30 +97,35 @@ const getMovieWithRating = (yorckTitle) => {
           .map(pageEitherFuture =>
             pageEitherFuture.map(pageEither =>
               pageEither
-                .map(page => new Movie(yorckTitle, extractMovieInfos(page)))))
-          .getOrElse(future(_ => new Movie(yorckTitle, new ImdbInfos())))));
+                .map(page => Movie(yorckInfos, extractMovieInfos(page)))))
+          .getOrElse(future(_ => Movie(yorckInfos, ImdbInfos())))));
 };
 
 const showOnPage = (movie) => {
   const moviesEl = document.getElementById("movies");
   moviesEl.innerHTML = '';
   movie.forEach(movie =>
-    moviesEl.innerHTML +=
-      `<a href='${movie.imdbUrl}'>${movie.rating} (${movie.ratingsCount})</a> ${movie.yorckTitle} – ${movie.imdbTitle}<br>`);
+    moviesEl.innerHTML += `
+      <a href='${movie.imdb.url}'>
+        ${movie.imdb.rating} (${movie.imdb.ratingsCount})
+      </a> ${movie.imdb.title} –
+      <a href='${movie.yorck.url}'>
+        ${movie.yorck.title}
+      </a><br>`);
 };
 
 const showPageLoadError = errorMessage =>
   document.getElementById("errors").innerHTML += errorMessage;
 
-const isSneakPreview = title => title.startsWith('Sneak');
-const titlesEitherFuture = yorckTitles();
+const isSneakPreview = infos => infos.title.startsWith('Sneak');
+const titlesEitherFuture = getYorckInfos();
 
 const movies = function () {
   let list = [];
   return {
     add: movie => {
       list.push(movie);
-      list = _(list).sortBy('rating').reverse();
+      list = _(list).sortBy(m => m.imdb.rating).reverse();
       showOnPage(list)
     }
   }
