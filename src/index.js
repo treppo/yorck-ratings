@@ -8,9 +8,9 @@ const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
 
 const Future = f => {
   return {
-    await: () => f(k => k),
+    await: (k) => f(k),
     map: g => Future(k => f(result => k(g(result)))),
-    flatMap: future => Future(k => f(result => future(result).await(k)))
+    flatMap: h => Future(k => f(result => h(result).await(k)))
   }
 };
 
@@ -18,12 +18,13 @@ const FutureEither = future => {
   return {
     future: future,
     await: future.await,
-    map: fe => FutureEither(future.map(either =>
-      either.isLeft ? either : Either.Right(fe(either.get())))),
-    flatMap: eitherToFE => {
-      const result = future.flatMap(either =>
-        either.isLeft ? Future(_ => either) : eitherToFE(either.get()).future);
-      return Future(result)
+    map: f => FutureEither(future.map(either =>
+      either.isLeft ? either : Either.Right(f(either.get())))),
+    flatMap: f => {
+      const result = future.flatMap(either => {
+        return either.isLeft ? Future(_ => either) : f(either.get()).future
+      });
+      return FutureEither(result)
     }
   }
 };
@@ -103,7 +104,7 @@ const getMovie = (yorckInfos) => {
 
   const searchPageEitherFuture = fetch(toSearchUrl(yorckInfos.title));
 
-  return searchPageEitherFuture.map(searchPage =>
+  return searchPageEitherFuture.flatMap(searchPage =>
     extractMoviePathname(searchPage)
       .map(pathname => fetch(imdbUrl + pathname))
       .map(pageFutureEither =>
@@ -130,7 +131,7 @@ const showPageLoadError = errorMessage =>
   document.getElementById("errors").innerHTML += errorMessage;
 
 const isSneakPreview = infos => infos.title.startsWith('Sneak');
-const yorckInfosEitherFuture = getYorckInfos();
+const yorckInfosFutureEither = getYorckInfos();
 const movies = function () {
   let list = [];
   return {
@@ -142,17 +143,17 @@ const movies = function () {
   }
 }();
 
-yorckInfosEitherFuture
+yorckInfosFutureEither
   .map(yorckInfos =>
     _(yorckInfos)
       .reject(isSneakPreview)
       .map(getMovie))
-  .map(resultFutureEithers =>
-    resultFutureEithers.map(resultFutureEither =>
-      resultFutureEither
-        .map(movieFutureEither =>
-            movieFutureEither
-              .map(movie => movies.add(movie))
-              .await())
-        .await()))
-  .await();
+  .map(searchResultFutureEithers =>
+    searchResultFutureEithers
+      .map(movieFutureEither =>
+        movieFutureEither
+          .await(movieEither =>
+            movieEither
+              .map(movies.add)
+              .getOrElse(showPageLoadError))))
+  .await(yorckInfosEither => yorckInfosEither.getOrElse(showPageLoadError));
