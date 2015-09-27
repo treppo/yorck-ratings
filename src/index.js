@@ -28,7 +28,7 @@ const FutureEither = future => {
   }
 };
 
-const fetch = url => Future(f => {
+const fetch = url => FutureEither(Future(f => {
   const req = new XMLHttpRequest();
   req.onload = () =>
     f(req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
@@ -36,7 +36,7 @@ const fetch = url => Future(f => {
   req.responseType = "document";
   req.overrideMimeType("text/html");
   req.send();
-});
+}));
 
 const YorckInfos = (title, url) => {
   return {
@@ -75,9 +75,10 @@ const getYorckInfos = () => {
     }
   };
   const extractInfos = p => _(p.querySelectorAll('.films a')).map(el => {
-    return YorckInfos(rotateArticle(el.textContent), el.href) });
+    return YorckInfos(rotateArticle(el.textContent), el.href)
+  });
 
-  const pageEitherFuture = FutureEither(fetch(yorckFilmsUrl));
+  const pageEitherFuture = fetch(yorckFilmsUrl);
   return pageEitherFuture.map(page => extractInfos(page))
 };
 
@@ -102,14 +103,12 @@ const getMovie = (yorckInfos) => {
 
   const searchPageEitherFuture = fetch(toSearchUrl(yorckInfos.title));
 
-  return searchPageEitherFuture.map(searchPageEither =>
-    searchPageEither
-      .map(searchPage =>
-        extractMoviePathname(searchPage)
-          .map(pathname => FutureEither(fetch(imdbUrl + pathname)))
-          .map(pageFutureEither =>
-            pageFutureEither.map(page => Movie(yorckInfos, extractMovieInfos(page))))
-          .getOrElse(FutureEither(Future(_ => Movie(yorckInfos, ImdbInfos()))))));
+  return searchPageEitherFuture.map(searchPage =>
+    extractMoviePathname(searchPage)
+      .map(pathname => fetch(imdbUrl + pathname))
+      .map(pageFutureEither =>
+        pageFutureEither.map(page => Movie(yorckInfos, extractMovieInfos(page))))
+      .getOrElse(FutureEither(Future(_ => Movie(yorckInfos, ImdbInfos())))));
 };
 
 const showOnPage = (movie) => {
@@ -148,13 +147,12 @@ yorckInfosEitherFuture
     _(yorckInfos)
       .reject(isSneakPreview)
       .map(getMovie))
-  .map(resultFutures =>
-    resultFutures.map(resultFuture =>
-      resultFuture
-        .map(resultEither =>
-          resultEither.map(movieFutureEither =>
+  .map(resultFutureEithers =>
+    resultFutureEithers.map(resultFutureEither =>
+      resultFutureEither
+        .map(movieFutureEither =>
             movieFutureEither
               .map(movie => movies.add(movie))
-              .await()))
+              .await())
         .await()))
   .await();
