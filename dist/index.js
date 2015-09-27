@@ -4407,12 +4407,14 @@ const showOnPage = (movie) => {
   moviesEl.innerHTML = '';
   movie.forEach(movie =>
     moviesEl.innerHTML += `
-      <a href='${movie.imdb.url}'>
-        ${movie.imdb.rating} (${movie.imdb.ratingsCount})
-      </a> ${movie.imdb.title} –
-      <a href='${movie.yorck.url}'>
-        ${movie.yorck.title}
-      </a><br>`);
+      <li>
+        <a href='${movie.imdb.url}' class="rating">
+          ${movie.imdb.rating} (${movie.imdb.ratingsCount})
+        </a> ${movie.imdb.title} –
+        <a href='${movie.yorck.url}'>
+          ${movie.yorck.title}
+        </a>
+      </li>`);
 };
 
 const showPageLoadError = errorMessage =>

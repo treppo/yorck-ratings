@@ -1,0 +1,21 @@
+body {
+    font-family: "Futura Medium", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 2rem;
+}
+
+a {
+    color: black;
+}
+
+#movies {
+    max-width: 90%;
+    margin: 2rem auto;
+    font-size: 1.125rem;
+    list-style: none;
+}
+
+.rating {
+    width: 10rem;
+    display: inline-block;
+}
