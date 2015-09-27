@@ -4307,29 +4307,16 @@ const Either = require('data.either');
 const proxify = url => 'http://crossorigin.me/' + url;
 const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
 
-const future = function (f) {
+const future = f => {
   return {
-    await: function (k) {
-      return f(k);
-    },
-    map: function (g) {
-      return future(function (k) {
-        return f(function (x) {
-          return k(g(x));
-        });
-      });
-    },
-    flatMap: function (g) {
-      return future(function (k) {
-        return f(function (x) {
-          return g(x).await(k);
-        });
-      });
-    }
-  };
+    await: k => f(k),
+    map: g => future(k => f(x => k(g(x)))),
+    flatMap: g => future(k => f(x => g(x).await(k))),
+    chain: g => g(f)
+  }
 };
 
-const fetch = url => f => {
+const fetch = url => future(f => {
   const req = new XMLHttpRequest();
   req.onload = () =>
     f(req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
@@ -4337,7 +4324,7 @@ const fetch = url => f => {
   req.responseType = "document";
   req.overrideMimeType("text/html");
   req.send();
-};
+});
 
 const yorckTitles = () => {
   const yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
@@ -4353,7 +4340,7 @@ const yorckTitles = () => {
       return title
     }
   };
-  const pageEitherFuture = future(fetch(yorckFilmsUrl));
+  const pageEitherFuture = fetch(yorckFilmsUrl);
 
   return pageEitherFuture
     .map(pageEither => pageEither.map(extractTitles))
@@ -4366,11 +4353,19 @@ const getMovieWithRating = (yorckTitle) => {
   const imdbUrl = "http://www.imdb.com";
   const toSearchUrl = movie => `${imdbUrl}/find?s=tt&q=${encodeURIComponent(movie)}`;
 
-  function MovieInfos(title = 'n/a', rating = 'n/a', url = '', ratingsCount = '') {
+  function ImdbInfos(title = 'n/a', rating = 'n/a', url = '', ratingsCount = '') {
     this.title = title;
     this.rating = rating;
     this.url = url;
     this.ratingsCount = ratingsCount;
+  }
+
+  function Movie(yorckTitle, imdbInfos) {
+    this.yorckTitle = yorckTitle;
+    this.imdbTitle = imdbInfos.title;
+    this.rating = imdbInfos.rating;
+    this.imdbUrl = imdbInfos.url;
+    this.ratingsCount = imdbInfos.ratingsCount;
   }
 
   const extractMoviePathname = page => {
@@ -4381,54 +4376,67 @@ const getMovieWithRating = (yorckTitle) => {
   const extractMovieInfos = page => {
     const $ = (doc, selector) => doc.querySelector(selector) || {textContent: "n/a"};
     const imdbTitle = $(page, '#overview-top .header').textContent;
-    const rating = $(page, '#overview-top .star-box-details strong').textContent;
+    const rating = parseFloat($(page, '#overview-top .star-box-details strong').textContent);
     const ratingsCount = $(page, '#overview-top .star-box-details > a').textContent;
+    const normalizedRating = isNaN(rating) ? 0 : rating;
 
-    return new MovieInfos(imdbTitle, rating, unproxify(page.URL), ratingsCount);
+    return new ImdbInfos(imdbTitle, normalizedRating, unproxify(page.URL), ratingsCount);
   };
 
-  const searchPageEitherFuture = future(fetch(toSearchUrl(yorckTitle)));
+  const searchPageEitherFuture = fetch(toSearchUrl(yorckTitle));
 
   return searchPageEitherFuture.map(searchPageEither =>
-      searchPageEither
-        .map(searchPage =>
-          extractMoviePathname(searchPage)
-            .map(pathname => imdbUrl + pathname)
-            .map(fetch)
-            .map(future)
-            .map(pageEitherFuture =>
-              pageEitherFuture.map(pageEither =>
-                pageEither
-                  .map(extractMovieInfos)
-                  .map(infos => [yorckTitle, infos])))
-            .getOrElse(future(_ => [yorckTitle, new MovieInfos()]))));
+    searchPageEither
+      .map(searchPage =>
+        extractMoviePathname(searchPage)
+          .map(pathname => fetch(imdbUrl + pathname))
+          .map(pageEitherFuture =>
+            pageEitherFuture.map(pageEither =>
+              pageEither
+                .map(page => new Movie(yorckTitle, extractMovieInfos(page)))))
+          .getOrElse(future(_ => new Movie(yorckTitle, new ImdbInfos())))));
 };
 
-const showOnPage = (entry) => {
+const showOnPage = (movie) => {
   const moviesEl = document.getElementById("movies");
-  const [yorckTitle, infos] = entry;
-  moviesEl.innerHTML += `${yorckTitle} – ${infos.title} <a href='${infos.url}'>${infos.rating} (${infos.ratingsCount})</a><br>`
+  moviesEl.innerHTML = '';
+  movie.forEach(movie =>
+    moviesEl.innerHTML +=
+      `<a href='${movie.imdbUrl}'>${movie.rating} (${movie.ratingsCount})</a> ${movie.yorckTitle} – ${movie.imdbTitle}<br>`);
 };
 
-const showYorckPageLoadError = errorMessage =>
-  document.getElementById("movies").innerHTML = errorMessage;
+const showPageLoadError = errorMessage =>
+  document.getElementById("errors").innerHTML += errorMessage;
 
 const isSneakPreview = title => title.startsWith('Sneak');
 const titlesEitherFuture = yorckTitles();
 
-titlesEitherFuture.await(titlesEither => {
-  return titlesEither
+const movies = function () {
+  let list = [];
+  return {
+    add: movie => {
+      list.push(movie);
+      list = _(list).sortBy('rating').reverse();
+      showOnPage(list)
+    }
+  }
+}();
+
+titlesEitherFuture.await(titlesEither =>
+  titlesEither
     .map(titles => _.chain(titles)
       .reject(isSneakPreview)
       .map(getMovieWithRating)
-      .map(entryEitherFutureEitherFuture =>
-        entryEitherFutureEitherFuture.await(entryEitherFutureEither =>
-          entryEitherFutureEither.map(entryEitherFuture =>
-            entryEitherFuture.await(entryEither =>
-              entryEither
-                .map(showOnPage))))))
-    .orElse(showYorckPageLoadError);
-});
+      .map(searchResultFuture =>
+        searchResultFuture.await(searchResultEither =>
+          searchResultEither
+            .map(movieFuture =>
+              movieFuture.await(movieEither =>
+                movieEither
+                  .map(movies.add)
+                  .orElse(showPageLoadError)))
+            .orElse(showPageLoadError))))
+    .orElse(showPageLoadError));
 
 },{"data.either":2,"data.maybe":3,"js-csp":6,"underscore":15}]},{},[16])
 //# sourceMappingURL=index.js.map
