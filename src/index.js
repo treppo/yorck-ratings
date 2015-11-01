@@ -8,16 +8,17 @@ const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
 
 const Future = f => {
   return {
-    await: (k) => f(k),
+    get: () => f(x => x),
     map: g => Future(k => f(result => k(g(result)))),
-    flatMap: h => Future(k => f(result => h(result).await(k)))
+    flatMap: h => Future(k => f(result => h(result).map(k).get()))
   }
 };
 
 const FutureEither = future => {
   return {
     future: future,
-    await: future.await,
+    get: future.get,
+    getOrElse: f => future.map(x => x.getOrElse(f)).get(),
     map: f => FutureEither(future.map(either =>
       either.isLeft ? either : Either.Right(f(either.get())))),
     flatMap: f => {
@@ -109,7 +110,7 @@ const getMovie = (yorckInfos) => {
       .map(pathname => fetch(imdbUrl + pathname))
       .map(pageFutureEither =>
         pageFutureEither.map(page => Movie(yorckInfos, extractMovieInfos(page))))
-      .getOrElse(FutureEither(Future(_ => Movie(yorckInfos, ImdbInfos())))));
+      .getOrElse(FutureEither(Future(_ => Either.Left("Couldn't find movie on Imdb")))));
 };
 
 const showOnPage = (movie) => {
@@ -130,8 +131,6 @@ const showOnPage = (movie) => {
 const showPageLoadError = errorMessage =>
   document.getElementById("errors").innerHTML += errorMessage;
 
-const isSneakPreview = infos => infos.title.startsWith('Sneak');
-const yorckInfosFutureEither = getYorckInfos();
 const movies = function () {
   let list = [];
   return {
@@ -143,17 +142,19 @@ const movies = function () {
   }
 }();
 
-yorckInfosFutureEither
-  .map(yorckInfos =>
+const isSneakPreview = infos => infos.title.startsWith('Sneak');
+
+const getMoviesFromYorckInfos = yorckInfos =>
     _(yorckInfos)
       .reject(isSneakPreview)
-      .map(getMovie))
-  .map(searchResultFutureEithers =>
-    searchResultFutureEithers
+      .map(getMovie);
+
+getYorckInfos()
+  .map(getMoviesFromYorckInfos)
+  .map(movieFutureEithers =>
+    movieFutureEithers
       .map(movieFutureEither =>
         movieFutureEither
-          .await(movieEither =>
-            movieEither
-              .map(movies.add)
-              .getOrElse(showPageLoadError))))
-  .await(yorckInfosEither => yorckInfosEither.getOrElse(showPageLoadError));
+          .map(movie => { movies.add(movie); return movie })
+          .get()))
+  .getOrElse(showPageLoadError);
