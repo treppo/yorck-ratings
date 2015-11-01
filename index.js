@@ -98,7 +98,7 @@ const getMovie = (yorckInfos) => {
     const $ = (doc, selector) => doc.querySelector(selector) || {textContent: "n/a"};
     const imdbTitle = $(page, '#overview-top .header').textContent;
     const rating = parseFloat($(page, '#overview-top .star-box-details strong').textContent);
-    const ratingsCount = $(page, '#overview-top .star-box-details > a').textContent;
+    const ratingsCount = $(page, '#overview-top .star-box-details > a').textContent.trim();
     const normalizedRating = isNaN(rating) ? 0 : rating;
 
     return ImdbInfos(imdbTitle, normalizedRating, unproxify(page.URL), ratingsCount);
@@ -114,19 +114,27 @@ const getMovie = (yorckInfos) => {
       .getOrElse(FutureEither(Future(_ => Either.Left("Couldn't find movie on Imdb")))));
 };
 
-const showOnPage = (movie) => {
-  const moviesEl = document.getElementById("movies");
-  moviesEl.innerHTML = '';
-  movie.forEach(movie =>
-    moviesEl.innerHTML += `
-      <li>
-        <a href='${movie.imdb.url}' class="rating">
+const showOnPage = (movies) => {
+  const moviesTable = document.getElementById("movies");
+  let moviesHtml = '';
+  movies.forEach(movie =>
+    moviesHtml += `
+      <tr>
+        <td>
           ${movie.imdb.rating} (${movie.imdb.ratingsCount})
-        </a> ${movie.imdb.title} –
-        <a href='${movie.yorck.url}'>
-          ${movie.yorck.title}
-        </a>
-      </li>`);
+        </td>
+        <td>
+          <a href="${movie.imdb.url}">
+            ${movie.imdb.title}
+          </a>
+        </td>
+        <td>
+          <a href="${movie.yorck.url}">
+            ${movie.yorck.title}
+          </a>
+        </td>
+      </tr>`);
+  moviesTable.innerHTML = moviesHtml;
 };
 
 const showPageLoadError = errorMessage =>
@@ -150,6 +158,7 @@ const getMoviesFromYorckInfos = yorckInfos =>
       .reject(isSneakPreview)
       .map(getMovie);
 
+// TODO simplify by introducing ListFutureEither
 getYorckInfos()
   .map(getMoviesFromYorckInfos)
   .map(movieFutureEithers =>

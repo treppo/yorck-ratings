@@ -8,14 +8,16 @@ a {
     color: black;
 }
 
-#movies {
-    max-width: 90%;
+table {
     margin: 2rem auto;
     font-size: 1.125rem;
-    list-style: none;
+    border-collapse: collapse;
 }
 
-.rating {
-    width: 11rem;
-    display: inline-block;
+td, th {
+    padding: 0 0.5rem;
+}
+
+thead {
+    font-weight: bold;
 }
