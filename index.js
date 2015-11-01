@@ -1,4 +1,164 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
+const csp = require('js-csp');
+const _ = require('underscore');
+const Maybe = require('data.maybe');
+const Either = require('data.either');
+
+const proxify = url => 'http://crossorigin.me/' + url;
+const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
+
+const Future = f => {
+  return {
+    await: (k) => f(k),
+    map: g => Future(k => f(result => k(g(result)))),
+    flatMap: h => Future(k => f(result => h(result).await(k)))
+  }
+};
+
+const FutureEither = future => {
+  return {
+    future: future,
+    await: future.await,
+    map: f => FutureEither(future.map(either =>
+      either.isLeft ? either : Either.Right(f(either.get())))),
+    flatMap: f => {
+      const result = future.flatMap(either => {
+        return either.isLeft ? Future(_ => either) : f(either.get()).future
+      });
+      return FutureEither(result)
+    }
+  }
+};
+
+const fetch = url => FutureEither(Future(f => {
+  const req = new XMLHttpRequest();
+  req.onload = () =>
+    f(req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
+  req.open("GET", proxify(url), true);
+  req.responseType = "document";
+  req.overrideMimeType("text/html");
+  req.send();
+}));
+
+const YorckInfos = (title, url) => {
+  return {
+    title: title,
+    url: url
+  }
+};
+
+const ImdbInfos = (title = 'n/a', rating = 'n/a', url = '', ratingsCount = '') => {
+  return {
+    title: title,
+    rating: rating,
+    url: url,
+    ratingsCount: ratingsCount
+  }
+};
+
+const Movie = (yorckInfos, imdbInfos) => {
+  return {
+    yorck: yorckInfos,
+    imdb: imdbInfos
+  }
+};
+
+const getYorckInfos = () => {
+  const yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
+  const rotateArticle = title => {
+    if (title.includes(', Der')) {
+      return 'Der ' + title.replace(', Der', '')
+    } else if (title.includes(', Die')) {
+      return 'Die ' + title.replace(', Die', '')
+    } else if (title.includes(', Das')) {
+      return 'Das ' + title.replace(', Das', '')
+    } else {
+      return title
+    }
+  };
+  const extractInfos = p => _(p.querySelectorAll('.films a')).map(el => {
+    return YorckInfos(rotateArticle(el.textContent), el.href)
+  });
+
+  const pageEitherFuture = fetch(yorckFilmsUrl);
+  return pageEitherFuture.map(page => extractInfos(page))
+};
+
+const getMovie = (yorckInfos) => {
+  const imdbUrl = "http://www.imdb.com";
+  const toSearchUrl = movie => `${imdbUrl}/find?s=tt&q=${encodeURIComponent(movie)}`;
+
+  const extractMoviePathname = page => {
+    const aEl = page.querySelector('.findList .result_text a');
+    return Maybe.fromNullable(aEl).map(_ => _.pathname)
+  };
+
+  const extractMovieInfos = page => {
+    const $ = (doc, selector) => doc.querySelector(selector) || {textContent: "n/a"};
+    const imdbTitle = $(page, '#overview-top .header').textContent;
+    const rating = parseFloat($(page, '#overview-top .star-box-details strong').textContent);
+    const ratingsCount = $(page, '#overview-top .star-box-details > a').textContent;
+    const normalizedRating = isNaN(rating) ? 0 : rating;
+
+    return ImdbInfos(imdbTitle, normalizedRating, unproxify(page.URL), ratingsCount);
+  };
+
+  const searchPageEitherFuture = fetch(toSearchUrl(yorckInfos.title));
+
+  return searchPageEitherFuture.flatMap(searchPage =>
+    extractMoviePathname(searchPage)
+      .map(pathname => fetch(imdbUrl + pathname))
+      .map(pageFutureEither =>
+        pageFutureEither.map(page => Movie(yorckInfos, extractMovieInfos(page))))
+      .getOrElse(FutureEither(Future(_ => Movie(yorckInfos, ImdbInfos())))));
+};
+
+const showOnPage = (movie) => {
+  const moviesEl = document.getElementById("movies");
+  moviesEl.innerHTML = '';
+  movie.forEach(movie =>
+    moviesEl.innerHTML += `
+      <li>
+        <a href='${movie.imdb.url}' class="rating">
+          ${movie.imdb.rating} (${movie.imdb.ratingsCount})
+        </a> ${movie.imdb.title} –
+        <a href='${movie.yorck.url}'>
+          ${movie.yorck.title}
+        </a>
+      </li>`);
+};
+
+const showPageLoadError = errorMessage =>
+  document.getElementById("errors").innerHTML += errorMessage;
+
+const isSneakPreview = infos => infos.title.startsWith('Sneak');
+const yorckInfosFutureEither = getYorckInfos();
+const movies = function () {
+  let list = [];
+  return {
+    add: movie => {
+      list.push(movie);
+      list = _(list).sortBy(m => m.imdb.rating).reverse();
+      showOnPage(list)
+    }
+  }
+}();
+
+yorckInfosFutureEither
+  .map(yorckInfos =>
+    _(yorckInfos)
+      .reject(isSneakPreview)
+      .map(getMovie))
+  .map(searchResultFutureEithers =>
+    searchResultFutureEithers
+      .map(movieFutureEither =>
+        movieFutureEither
+          .await(movieEither =>
+            movieEither
+              .map(movies.add)
+              .getOrElse(showPageLoadError))))
+  .await(yorckInfosEither => yorckInfosEither.getOrElse(showPageLoadError));
+},{"data.either":3,"data.maybe":4,"js-csp":7,"underscore":16}],2:[function(require,module,exports){
 // Copyright (c) 2013-2014 Quildreen Motta <quildreen@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person
@@ -179,7 +339,7 @@ Either.prototype.of = Either.of
 Either.prototype.ap = unimplemented
 
 Left.prototype.ap = function(b) {
-  return b
+  return this
 }
 
 Right.prototype.ap = function(b) {
@@ -407,7 +567,8 @@ Right.prototype.leftMap  = noop
 Left.prototype.leftMap = function(f) {
   return this.Left(f(this.value))
 }
-},{}],2:[function(require,module,exports){
+
+},{}],3:[function(require,module,exports){
 // Copyright (c) 2013-2014 Quildreen Motta <quildreen@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person
@@ -430,7 +591,7 @@ Left.prototype.leftMap = function(f) {
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 module.exports = require('./either')
-},{"./either":1}],3:[function(require,module,exports){
+},{"./either":2}],4:[function(require,module,exports){
 // Copyright (c) 2013-2014 Quildreen Motta <quildreen@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person
@@ -453,7 +614,7 @@ module.exports = require('./either')
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 module.exports = require('./maybe')
-},{"./maybe":4}],4:[function(require,module,exports){
+},{"./maybe":5}],5:[function(require,module,exports){
 // Copyright (c) 2013-2014 Quildreen Motta <quildreen@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person
@@ -657,9 +818,7 @@ Maybe.prototype.of = Maybe.of
  */
 Maybe.prototype.ap = unimplemented
 
-Nothing.prototype.ap = function(b) {
-  return b
-}
+Nothing.prototype.ap = noop
 
 Just.prototype.ap = function(b) {
   return b.map(this.value)
@@ -832,7 +991,8 @@ Just.prototype.toJSON = function() {
   return { '#type': 'folktale:Maybe.Just'
          , value: this.value }
 }
-},{}],5:[function(require,module,exports){
+
+},{}],6:[function(require,module,exports){
 "use strict";
 
 var buffers = require("./impl/buffers");
@@ -897,15 +1057,18 @@ module.exports = {
 
   put: process.put,
   take: process.take,
+  offer: process.offer,
+  poll: process.poll,
   sleep: process.sleep,
   alts: process.alts,
   putAsync: process.put_then_callback,
   takeAsync: process.take_then_callback,
+  NO_VALUE: process.NO_VALUE,
 
   timeout: timers.timeout
 };
 
-},{"./impl/buffers":9,"./impl/channels":10,"./impl/process":12,"./impl/select":13,"./impl/timers":14}],6:[function(require,module,exports){
+},{"./impl/buffers":10,"./impl/channels":11,"./impl/process":13,"./impl/select":14,"./impl/timers":15}],7:[function(require,module,exports){
 "use strict";
 
 var csp = require("./csp.core");
@@ -918,7 +1081,7 @@ csp.operations.pipelineAsync = pipeline.pipelineAsync;
 
 module.exports = csp;
 
-},{"./csp.core":5,"./csp.operations":7,"./csp.pipeline":8}],7:[function(require,module,exports){
+},{"./csp.core":6,"./csp.operations":8,"./csp.pipeline":9}],8:[function(require,module,exports){
 "use strict";
 
 var Box = require("./impl/channels").Box;
@@ -1710,7 +1873,7 @@ module.exports = {
 //   .into([])
 //   .unwrap();
 
-},{"./csp.core":5,"./impl/channels":10}],8:[function(require,module,exports){
+},{"./csp.core":6,"./impl/channels":11}],9:[function(require,module,exports){
 "use strict";
 
 var csp = require('./csp.core');
@@ -1823,7 +1986,7 @@ module.exports = {
   pipelineAsync: pipelineAsync
 };
 
-},{"./csp.core":5}],9:[function(require,module,exports){
+},{"./csp.core":6}],10:[function(require,module,exports){
 "use strict";
 
 // TODO: Consider EmptyError & FullError to avoid redundant bound
@@ -2051,7 +2214,7 @@ exports.promise = function promise_buffer() {
 
 exports.EMPTY = EMPTY;
 
-},{}],10:[function(require,module,exports){
+},{}],11:[function(require,module,exports){
 "use strict";
 
 var buffers = require("./buffers");
@@ -2158,7 +2321,7 @@ Channel.prototype._put = function(value, handler) {
     }
   }
 
-  // No buffer, full buffer, no pending takes. Queue this put now.
+  // No buffer, full buffer, no pending takes. Queue this put now if blockable.
   if (this.dirty_puts > MAX_DIRTY) {
     this.puts.cleanup(function(putter) {
       return putter.handler.is_active();
@@ -2167,10 +2330,12 @@ Channel.prototype._put = function(value, handler) {
   } else {
     this.dirty_puts ++;
   }
-  if (this.puts.length >= MAX_QUEUE_SIZE) {
-    throw new Error("No more than " + MAX_QUEUE_SIZE + " pending puts are allowed on a single channel.");
+  if (handler.is_blockable()) {
+    if (this.puts.length >= MAX_QUEUE_SIZE) {
+        throw new Error("No more than " + MAX_QUEUE_SIZE + " pending puts are allowed on a single channel.");
+    }
+    this.puts.unbounded_unshift(new PutBox(handler, value));
   }
-  this.puts.unbounded_unshift(new PutBox(handler, value));
   return null;
 };
 
@@ -2235,7 +2400,7 @@ Channel.prototype._take = function(handler) {
     return new Box(CLOSED);
   }
 
-  // No buffer, empty buffer, no pending puts. Queue this take now.
+  // No buffer, empty buffer, no pending puts. Queue this take now if blockable.
   if (this.dirty_takes > MAX_DIRTY) {
     this.takes.cleanup(function(handler) {
       return handler.is_active();
@@ -2244,10 +2409,12 @@ Channel.prototype._take = function(handler) {
   } else {
     this.dirty_takes ++;
   }
-  if (this.takes.length >= MAX_QUEUE_SIZE) {
-    throw new Error("No more than " + MAX_QUEUE_SIZE + " pending takes are allowed on a single channel.");
+  if (handler.is_blockable()) {
+    if (this.takes.length >= MAX_QUEUE_SIZE) {
+      throw new Error("No more than " + MAX_QUEUE_SIZE + " pending takes are allowed on a single channel.");
+    }
+    this.takes.unbounded_unshift(handler);
   }
-  this.takes.unbounded_unshift(handler);
   return null;
 };
 
@@ -2380,7 +2547,7 @@ exports.Box = Box;
 exports.Channel = Channel;
 exports.CLOSED = CLOSED;
 
-},{"./buffers":9,"./dispatch":11}],11:[function(require,module,exports){
+},{"./buffers":10,"./dispatch":12}],12:[function(require,module,exports){
 "use strict";
 
 // TODO: Use process.nextTick if it's available since it's more
@@ -2464,19 +2631,26 @@ exports.queue_delay = function(f, delay) {
   setTimeout(f, delay);
 };
 
-},{"./buffers":9}],12:[function(require,module,exports){
+},{"./buffers":10}],13:[function(require,module,exports){
 "use strict";
 
 var dispatch = require("./dispatch");
 var select = require("./select");
 var Channel = require("./channels").Channel;
 
-var FnHandler = function(f) {
+var NO_VALUE = {};
+
+var FnHandler = function(blockable, f) {
   this.f = f;
+  this.blockable = blockable;
 };
 
 FnHandler.prototype.is_active = function() {
   return true;
+};
+
+FnHandler.prototype.is_blockable = function() {
+  return this.blockable;
 };
 
 FnHandler.prototype.commit = function() {
@@ -2484,14 +2658,14 @@ FnHandler.prototype.commit = function() {
 };
 
 function put_then_callback(channel, value, callback) {
-  var result = channel._put(value, new FnHandler(callback));
+  var result = channel._put(value, new FnHandler(true, callback));
   if (result && callback) {
     callback(result.value);
   }
 }
 
 function take_then_callback(channel, callback) {
-  var result = channel._take(new FnHandler(callback));
+  var result = channel._take(new FnHandler(true, callback));
   if (result) {
     callback(result.value);
   }
@@ -2605,6 +2779,32 @@ function put(channel, value) {
   });
 }
 
+function poll(channel) {
+  if (channel.closed) {
+    return NO_VALUE;
+  }
+
+  var result = channel._take(new FnHandler(false));
+  if (result) {
+    return result.value;
+  } else {
+    return NO_VALUE;
+  }
+}
+
+function offer(channel, value) {
+  if (channel.closed) {
+    return false;
+  }
+
+  var result = channel._put(value, new FnHandler(false));
+  if (result) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
 function sleep(msecs) {
   return new Instruction(SLEEP, msecs);
 }
@@ -2620,12 +2820,15 @@ exports.put_then_callback = put_then_callback;
 exports.take_then_callback = take_then_callback;
 exports.put = put;
 exports.take = take;
+exports.offer = offer;
+exports.poll = poll;
 exports.sleep = sleep;
 exports.alts = alts;
 exports.Instruction = Instruction;
 exports.Process = Process;
+exports.NO_VALUE = NO_VALUE;
 
-},{"./channels":10,"./dispatch":11,"./select":13}],13:[function(require,module,exports){
+},{"./channels":11,"./dispatch":12,"./select":14}],14:[function(require,module,exports){
 "use strict";
 
 var Box = require("./channels").Box;
@@ -2637,6 +2840,10 @@ var AltHandler = function(flag, f) {
 
 AltHandler.prototype.is_active = function() {
   return this.flag.value;
+};
+
+AltHandler.prototype.is_blockable = function() {
+  return true;
 };
 
 AltHandler.prototype.commit = function() {
@@ -2734,7 +2941,7 @@ exports.do_alts = function(operations, callback, options) {
 
 exports.DEFAULT = DEFAULT;
 
-},{"./channels":10}],14:[function(require,module,exports){
+},{"./channels":11}],15:[function(require,module,exports){
 "use strict";
 
 var dispatch = require("./dispatch");
@@ -2748,7 +2955,7 @@ exports.timeout = function timeout_channel(msecs) {
   return chan;
 };
 
-},{"./channels":10,"./dispatch":11}],15:[function(require,module,exports){
+},{"./channels":11,"./dispatch":12}],16:[function(require,module,exports){
 //     Underscore.js 1.8.3
 //     http://underscorejs.org
 //     (c) 2009-2015 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
@@ -4298,165 +4505,5 @@ exports.timeout = function timeout_channel(msecs) {
   }
 }.call(this));
 
-},{}],16:[function(require,module,exports){
-const csp = require('js-csp');
-const _ = require('underscore');
-const Maybe = require('data.maybe');
-const Either = require('data.either');
-
-const proxify = url => 'http://crossorigin.me/' + url;
-const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
-
-const Future = f => {
-  return {
-    await: (k) => f(k),
-    map: g => Future(k => f(result => k(g(result)))),
-    flatMap: h => Future(k => f(result => h(result).await(k)))
-  }
-};
-
-const FutureEither = future => {
-  return {
-    future: future,
-    await: future.await,
-    map: f => FutureEither(future.map(either =>
-      either.isLeft ? either : Either.Right(f(either.get())))),
-    flatMap: f => {
-      const result = future.flatMap(either => {
-        return either.isLeft ? Future(_ => either) : f(either.get()).future
-      });
-      return FutureEither(result)
-    }
-  }
-};
-
-const fetch = url => FutureEither(Future(f => {
-  const req = new XMLHttpRequest();
-  req.onload = () =>
-    f(req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
-  req.open("GET", proxify(url), true);
-  req.responseType = "document";
-  req.overrideMimeType("text/html");
-  req.send();
-}));
-
-const YorckInfos = (title, url) => {
-  return {
-    title: title,
-    url: url
-  }
-};
-
-const ImdbInfos = (title = 'n/a', rating = 'n/a', url = '', ratingsCount = '') => {
-  return {
-    title: title,
-    rating: rating,
-    url: url,
-    ratingsCount: ratingsCount
-  }
-};
-
-const Movie = (yorckInfos, imdbInfos) => {
-  return {
-    yorck: yorckInfos,
-    imdb: imdbInfos
-  }
-};
-
-const getYorckInfos = () => {
-  const yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
-  const rotateArticle = title => {
-    if (title.includes(', Der')) {
-      return 'Der ' + title.replace(', Der', '')
-    } else if (title.includes(', Die')) {
-      return 'Die ' + title.replace(', Die', '')
-    } else if (title.includes(', Das')) {
-      return 'Das ' + title.replace(', Das', '')
-    } else {
-      return title
-    }
-  };
-  const extractInfos = p => _(p.querySelectorAll('.films a')).map(el => {
-    return YorckInfos(rotateArticle(el.textContent), el.href)
-  });
-
-  const pageEitherFuture = fetch(yorckFilmsUrl);
-  return pageEitherFuture.map(page => extractInfos(page))
-};
-
-const getMovie = (yorckInfos) => {
-  const imdbUrl = "http://www.imdb.com";
-  const toSearchUrl = movie => `${imdbUrl}/find?s=tt&q=${encodeURIComponent(movie)}`;
-
-  const extractMoviePathname = page => {
-    const aEl = page.querySelector('.findList .result_text a');
-    return Maybe.fromNullable(aEl).map(_ => _.pathname)
-  };
-
-  const extractMovieInfos = page => {
-    const $ = (doc, selector) => doc.querySelector(selector) || {textContent: "n/a"};
-    const imdbTitle = $(page, '#overview-top .header').textContent;
-    const rating = parseFloat($(page, '#overview-top .star-box-details strong').textContent);
-    const ratingsCount = $(page, '#overview-top .star-box-details > a').textContent;
-    const normalizedRating = isNaN(rating) ? 0 : rating;
-
-    return ImdbInfos(imdbTitle, normalizedRating, unproxify(page.URL), ratingsCount);
-  };
-
-  const searchPageEitherFuture = fetch(toSearchUrl(yorckInfos.title));
-
-  return searchPageEitherFuture.flatMap(searchPage =>
-    extractMoviePathname(searchPage)
-      .map(pathname => fetch(imdbUrl + pathname))
-      .map(pageFutureEither =>
-        pageFutureEither.map(page => Movie(yorckInfos, extractMovieInfos(page))))
-      .getOrElse(FutureEither(Future(_ => Movie(yorckInfos, ImdbInfos())))));
-};
-
-const showOnPage = (movie) => {
-  const moviesEl = document.getElementById("movies");
-  moviesEl.innerHTML = '';
-  movie.forEach(movie =>
-    moviesEl.innerHTML += `
-      <li>
-        <a href='${movie.imdb.url}' class="rating">
-          ${movie.imdb.rating} (${movie.imdb.ratingsCount})
-        </a> ${movie.imdb.title} –
-        <a href='${movie.yorck.url}'>
-          ${movie.yorck.title}
-        </a>
-      </li>`);
-};
-
-const showPageLoadError = errorMessage =>
-  document.getElementById("errors").innerHTML += errorMessage;
-
-const isSneakPreview = infos => infos.title.startsWith('Sneak');
-const yorckInfosFutureEither = getYorckInfos();
-const movies = function () {
-  let list = [];
-  return {
-    add: movie => {
-      list.push(movie);
-      list = _(list).sortBy(m => m.imdb.rating).reverse();
-      showOnPage(list)
-    }
-  }
-}();
-
-yorckInfosFutureEither
-  .map(yorckInfos =>
-    _(yorckInfos)
-      .reject(isSneakPreview)
-      .map(getMovie))
-  .map(searchResultFutureEithers =>
-    searchResultFutureEithers
-      .map(movieFutureEither =>
-        movieFutureEither
-          .await(movieEither =>
-            movieEither
-              .map(movies.add)
-              .getOrElse(showPageLoadError))))
-  .await(yorckInfosEither => yorckInfosEither.getOrElse(showPageLoadError));
-},{"data.either":2,"data.maybe":3,"js-csp":6,"underscore":15}]},{},[16])
+},{}]},{},[1])
 //# sourceMappingURL=index.js.map
