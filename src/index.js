@@ -3,8 +3,8 @@ const _ = require('underscore');
 const Maybe = require('data.maybe');
 const Either = require('data.either');
 
-const proxify = url => 'http://crossorigin.me/' + url;
-const unproxify = url => url.replace(/http:\/\/crossorigin.me\//, '');
+const proxify = url => '//crossorigin.me/' + url;
+const unproxify = url => url.replace(/http(s)?:\/\/crossorigin.me\//, '');
 
 const Future = f => {
   return {
