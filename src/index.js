@@ -41,30 +41,6 @@ const fetch = url => FutureEither(Future(f => {
 }));
 
 const YorckInfos = (title, url) => {
-  return {
-    title: title,
-    url: url
-  }
-};
-
-const ImdbInfos = (title = 'n/a', rating = 'n/a', url = '', ratingsCount = '') => {
-  return {
-    title: title,
-    rating: rating,
-    url: url,
-    ratingsCount: ratingsCount
-  }
-};
-
-const Movie = (yorckInfos, imdbInfos) => {
-  return {
-    yorck: yorckInfos,
-    imdb: imdbInfos
-  }
-};
-
-const getYorckInfos = () => {
-  const yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
   const rotateArticle = title => {
     if (title.includes(', Der')) {
       return 'Der ' + title.replace(', Der', '')
@@ -76,40 +52,69 @@ const getYorckInfos = () => {
       return title
     }
   };
-  const extractInfos = p => _(p.querySelectorAll('.films a')).map(el => {
-    return YorckInfos(rotateArticle(el.textContent), el.href)
-  });
 
-  const pageEitherFuture = fetch(yorckFilmsUrl);
-  return pageEitherFuture.map(page => extractInfos(page))
+
+  return {
+    title: rotateArticle(title),
+    url: url
+  }
+};
+
+const Movie = (yorckInfos, imdbInfos) => {
+  return {
+    yorck: yorckInfos,
+    imdb: imdbInfos
+  }
+};
+
+const YorckPage = doc => {
+  return {
+    movieAnchors: _(doc.querySelectorAll('.films a'))
+  }
+};
+
+const ImdbSearchPage = doc => {
+  return {
+    moviePaths: Maybe.fromNullable(doc.querySelector('.findList .findResult a')).map(a => a.pathname)
+  };
+};
+
+const ImdbDetailPage = doc => {
+  const $ = (selector) => doc.querySelector(selector) || {textContent: "n/a"};
+
+  return {
+    url: unproxify(doc.URL),
+    rating: (() => {
+      const rating = parseFloat($('span[itemprop="ratingValue"]').textContent);
+      return isNaN(rating) ? 0 : rating
+    })(),
+    ratingsCount: $('span[itemprop="ratingCount"]').textContent.trim(),
+    title: $('*[itemprop="name"]').textContent
+  }
+};
+
+const getYorckInfos = () => {
+  const yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
+
+  const extractInfos = yp =>
+    yp.movieAnchors.map(({textContent, href}) => YorckInfos(textContent, href));
+
+  return fetch(yorckFilmsUrl)
+    .map(YorckPage)
+    .map(extractInfos)
 };
 
 const getMovie = (yorckInfos) => {
   const imdbUrl = "http://www.imdb.com";
-  const toSearchUrl = movie => `${imdbUrl}/find?s=tt&q=${encodeURIComponent(movie)}`;
-
-  const extractMoviePathname = page => {
-    const aEl = page.querySelector('.findList .result_text a');
-    return Maybe.fromNullable(aEl).map(_ => _.pathname)
-  };
-
-  const extractMovieInfos = page => {
-    const $ = (doc, selector) => doc.querySelector(selector) || {textContent: "n/a"};
-    const imdbTitle = $(page, '#overview-top .header').textContent;
-    const rating = parseFloat($(page, '#overview-top .star-box-details strong').textContent);
-    const ratingsCount = $(page, '#overview-top .star-box-details > a').textContent.trim();
-    const normalizedRating = isNaN(rating) ? 0 : rating;
-
-    return ImdbInfos(imdbTitle, normalizedRating, unproxify(page.URL), ratingsCount);
-  };
+  const toSearchUrl = movie => `${imdbUrl}/find?q=${encodeURIComponent(movie)}`;
 
   const searchPageEitherFuture = fetch(toSearchUrl(yorckInfos.title));
 
   return searchPageEitherFuture.flatMap(searchPage =>
-    extractMoviePathname(searchPage)
+    ImdbSearchPage(searchPage).moviePaths
       .map(pathname => fetch(imdbUrl + pathname))
       .map(pageFutureEither =>
-        pageFutureEither.map(page => Movie(yorckInfos, extractMovieInfos(page))))
+        pageFutureEither.map(page => Movie(yorckInfos, ImdbDetailPage(page))))
       .getOrElse(FutureEither(Future(_ => Either.Left("Couldn't find movie on Imdb")))));
 };
 
