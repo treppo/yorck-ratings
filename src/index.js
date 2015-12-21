@@ -18,13 +18,12 @@ const FutureEither = future => {
   return {
     future: future,
     get: future.get,
-    getOrElse: f => future.map(x => x.getOrElse(f)).get(),
+    getOrLeftMap: f => future.map(either => either.isLeft ? either.leftMap(f) : either.get()).get(),
     map: f => FutureEither(future.map(either =>
       either.isLeft ? either : Either.Right(f(either.get())))),
     flatMap: f => {
-      const result = future.flatMap(either => {
-        return either.isLeft ? Future(_ => either) : f(either.get()).future
-      });
+      const result = future.flatMap(either =>
+        either.isLeft ? Future(g => g(either)) : f(either.get()).future);
       return FutureEither(result)
     }
   }
@@ -75,7 +74,8 @@ const YorckPage = doc => {
 
 const ImdbSearchPage = doc => {
   return {
-    moviePaths: Maybe.fromNullable(doc.querySelector('.findList .findResult a')).map(a => a.pathname)
+    moviePathMaybe: Maybe.fromNullable(doc.querySelector('.findList .findResult a'))
+      .map(a => a.pathname)
   };
 };
 
@@ -106,16 +106,16 @@ const getYorckInfos = () => {
 
 const getMovie = (yorckInfos) => {
   const imdbUrl = "http://www.imdb.com";
-  const toSearchUrl = movie => `${imdbUrl}/find?q=${encodeURIComponent(movie)}`;
+  const searchUrl = `${imdbUrl}/find?q=${encodeURIComponent(yorckInfos.title)}`;
 
-  const searchPageEitherFuture = fetch(toSearchUrl(yorckInfos.title));
+  const searchPageEitherFuture = fetch(searchUrl);
 
   return searchPageEitherFuture.flatMap(searchPage =>
-    ImdbSearchPage(searchPage).moviePaths
+    ImdbSearchPage(searchPage).moviePathMaybe
       .map(pathname => fetch(imdbUrl + pathname))
-      .map(pageFutureEither =>
-        pageFutureEither.map(page => Movie(yorckInfos, ImdbDetailPage(page))))
-      .getOrElse(FutureEither(Future(_ => Either.Left("Couldn't find movie on Imdb")))));
+      .getOrElse(FutureEither(Future(f =>
+        f(Either.Left(`Couldn't find movie "${yorckInfos.title}" on Imdb at ${searchUrl}`)))))
+      .map(detailPage => Movie(yorckInfos, ImdbDetailPage(detailPage))));
 };
 
 const showOnPage = (movies) => {
@@ -142,7 +142,7 @@ const showOnPage = (movies) => {
 };
 
 const showPageLoadError = errorMessage =>
-  document.getElementById("errors").innerHTML += errorMessage;
+  document.getElementById("errors").innerHTML += `<p>${errorMessage}</p>`;
 
 const movies = function () {
   let list = [];
@@ -157,18 +157,13 @@ const movies = function () {
 
 const isSneakPreview = infos => infos.title.startsWith('Sneak');
 
-const getMoviesFromYorckInfos = yorckInfos =>
+getYorckInfos()
+  .map(yorckInfos =>
     _(yorckInfos)
       .reject(isSneakPreview)
-      .map(getMovie);
-
-// TODO simplify by introducing ListFutureEither
-getYorckInfos()
-  .map(getMoviesFromYorckInfos)
-  .map(movieFutureEithers =>
-    movieFutureEithers
+      .map(getMovie)
       .map(movieFutureEither =>
         movieFutureEither
           .map(movie => { movies.add(movie); return movie })
-          .get()))
-  .getOrElse(showPageLoadError);
+          .getOrLeftMap(showPageLoadError)))
+  .getOrLeftMap(showPageLoadError);
