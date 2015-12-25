@@ -66,7 +66,8 @@ const YorckInfos = (title, url) => {
   const correctTitle = _.compose(remove2And3D, rotateArticle);
 
   return {
-    title: correctTitle(title),
+    title: rotateArticle(title),
+    searchableTitle: correctTitle(title),
     url: url
   }
 };
@@ -118,7 +119,7 @@ const getYorckInfos = () => {
 
 const getMovie = (yorckInfos) => {
   const imdbUrl = "http://www.imdb.com";
-  const searchUrl = `${imdbUrl}/find?q=${encodeURIComponent(yorckInfos.title)}`;
+  const searchUrl = `${imdbUrl}/find?q=${encodeURIComponent(yorckInfos.searchableTitle)}`;
 
   const searchPageEitherFuture = fetch(searchUrl);
 
