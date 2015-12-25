@@ -53,9 +53,20 @@ const YorckInfos = (title, url) => {
     }
   };
 
+  const remove2And3D = title => {
+    if (title.includes('2D')) {
+      return title.replace('2D', '')
+    } else if (title.includes('3D')) {
+      return title.replace('3D', '')
+    } else {
+      return title
+    }
+  };
+
+  const correctTitle = _.compose(remove2And3D, rotateArticle);
 
   return {
-    title: rotateArticle(title),
+    title: correctTitle(title),
     url: url
   }
 };
