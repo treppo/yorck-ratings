@@ -1,185 +1,218 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-const csp = require('js-csp');
-const _ = require('underscore');
-const Maybe = require('data.maybe');
-const Either = require('data.either');
+'use strict';
 
-const proxify = url => '//crossorigin.me/' + url;
-const unproxify = url => url.replace(/http(s)?:\/\/crossorigin.me\//, '');
+var csp = require('js-csp');
+var _ = require('underscore');
+var Maybe = require('data.maybe');
+var Either = require('data.either');
 
-const Future = f => {
-  return {
-    get: () => f(x => x),
-    map: g => Future(k => f(result => k(g(result)))),
-    flatMap: h => Future(k => f(result => h(result).map(k).get()))
-  }
+var proxify = function proxify(url) {
+  return '//crossorigin.me/' + url;
+};
+var unproxify = function unproxify(url) {
+  return url.replace(/http(s)?:\/\/crossorigin.me\//, '');
 };
 
-const FutureEither = future => {
+var Future = function Future(f) {
+  return {
+    get: function get() {
+      return f(function (x) {
+        return x;
+      });
+    },
+    map: function map(g) {
+      return Future(function (k) {
+        return f(function (result) {
+          return k(g(result));
+        });
+      });
+    },
+    flatMap: function flatMap(h) {
+      return Future(function (k) {
+        return f(function (result) {
+          return h(result).map(k).get();
+        });
+      });
+    }
+  };
+};
+
+var FutureEither = function FutureEither(future) {
   return {
     future: future,
     get: future.get,
-    getOrLeftMap: f => future.map(either => either.isLeft ? either.leftMap(f) : either.get()).get(),
-    map: f => FutureEither(future.map(either =>
-      either.isLeft ? either : Either.Right(f(either.get())))),
-    flatMap: f => {
-      const result = future.flatMap(either =>
-        either.isLeft ? Future(g => g(either)) : f(either.get()).future);
-      return FutureEither(result)
+    getOrLeftMap: function getOrLeftMap(f) {
+      return future.map(function (either) {
+        return either.isLeft ? either.leftMap(f) : either.get();
+      }).get();
+    },
+    map: function map(f) {
+      return FutureEither(future.map(function (either) {
+        return either.isLeft ? either : Either.Right(f(either.get()));
+      }));
+    },
+    flatMap: function flatMap(f) {
+      var result = future.flatMap(function (either) {
+        return either.isLeft ? Future(function (g) {
+          return g(either);
+        }) : f(either.get()).future;
+      });
+      return FutureEither(result);
     }
-  }
+  };
 };
 
-const fetch = url => FutureEither(Future(f => {
-  const req = new XMLHttpRequest();
-  req.onload = () =>
-    f(req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
-  req.open("GET", proxify(url), true);
-  req.responseType = "document";
-  req.overrideMimeType("text/html");
-  req.send();
-}));
+var fetch = function fetch(url) {
+  return FutureEither(Future(function (f) {
+    var req = new XMLHttpRequest();
+    req.onload = function () {
+      return f(req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
+    };
+    req.open("GET", proxify(url), true);
+    req.responseType = "document";
+    req.overrideMimeType("text/html");
+    req.send();
+  }));
+};
 
-const YorckInfos = (title, url) => {
-  const rotateArticle = title => {
+var YorckInfos = function YorckInfos(title, url) {
+  var rotateArticle = function rotateArticle(title) {
     if (title.includes(', Der')) {
-      return 'Der ' + title.replace(', Der', '')
+      return 'Der ' + title.replace(', Der', '');
     } else if (title.includes(', Die')) {
-      return 'Die ' + title.replace(', Die', '')
+      return 'Die ' + title.replace(', Die', '');
     } else if (title.includes(', Das')) {
-      return 'Das ' + title.replace(', Das', '')
+      return 'Das ' + title.replace(', Das', '');
     } else {
-      return title
+      return title;
     }
   };
 
-  const remove2And3D = title => {
+  var remove2And3D = function remove2And3D(title) {
     if (title.includes('2D')) {
-      return title.replace('2D', '')
+      return title.replace('2D', '');
     } else if (title.includes('3D')) {
-      return title.replace('3D', '')
+      return title.replace('3D', '');
     } else {
-      return title
+      return title;
     }
   };
 
-  const correctTitle = _.compose(remove2And3D, rotateArticle);
+  var correctTitle = _.compose(remove2And3D, rotateArticle);
 
   return {
     title: rotateArticle(title),
     searchableTitle: correctTitle(title),
     url: url
-  }
-};
-
-const Movie = (yorckInfos, imdbInfos) => {
-  return {
-    yorck: yorckInfos,
-    imdb: imdbInfos
-  }
-};
-
-const YorckPage = doc => {
-  return {
-    movieAnchors: _(doc.querySelectorAll('.films a'))
-  }
-};
-
-const ImdbSearchPage = doc => {
-  return {
-    moviePathMaybe: Maybe.fromNullable(doc.querySelector('.findList .findResult a'))
-      .map(a => a.pathname)
   };
 };
 
-const ImdbDetailPage = doc => {
-  const $ = (selector) => doc.querySelector(selector) || {textContent: "n/a"};
+var Movie = function Movie(yorckInfos, imdbInfos) {
+  return {
+    yorck: yorckInfos,
+    imdb: imdbInfos
+  };
+};
+
+var YorckPage = function YorckPage(doc) {
+  return {
+    movieAnchors: _(doc.querySelectorAll('.films a'))
+  };
+};
+
+var ImdbSearchPage = function ImdbSearchPage(doc) {
+  return {
+    moviePathMaybe: Maybe.fromNullable(doc.querySelector('.findList .findResult a')).map(function (a) {
+      return a.pathname;
+    })
+  };
+};
+
+var ImdbDetailPage = function ImdbDetailPage(doc) {
+  var $ = function $(selector) {
+    return doc.querySelector(selector) || { textContent: "n/a" };
+  };
 
   return {
     url: unproxify(doc.URL),
-    rating: (() => {
-      const rating = parseFloat($('span[itemprop="ratingValue"]').textContent);
-      return isNaN(rating) ? 0 : rating
+    rating: (function () {
+      var rating = parseFloat($('span[itemprop="ratingValue"]').textContent);
+      return isNaN(rating) ? 0 : rating;
     })(),
     ratingsCount: $('span[itemprop="ratingCount"]').textContent.trim(),
     title: $('*[itemprop="name"]').textContent
-  }
+  };
 };
 
-const getYorckInfos = () => {
-  const yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
+var getYorckInfos = function getYorckInfos() {
+  var yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
 
-  const extractInfos = yp =>
-    yp.movieAnchors.map(({textContent, href}) => YorckInfos(textContent, href));
+  var extractInfos = function extractInfos(yp) {
+    return yp.movieAnchors.map(function (_ref) {
+      var textContent = _ref.textContent;
+      var href = _ref.href;
+      return YorckInfos(textContent, href);
+    });
+  };
 
-  return fetch(yorckFilmsUrl)
-    .map(YorckPage)
-    .map(extractInfos)
+  return fetch(yorckFilmsUrl).map(YorckPage).map(extractInfos);
 };
 
-const getMovie = (yorckInfos) => {
-  const imdbUrl = "http://www.imdb.com";
-  const searchUrl = `${imdbUrl}/find?q=${encodeURIComponent(yorckInfos.searchableTitle)}`;
+var getMovie = function getMovie(yorckInfos) {
+  var imdbUrl = "http://www.imdb.com";
+  var searchUrl = imdbUrl + '/find?q=' + encodeURIComponent(yorckInfos.searchableTitle);
 
-  const searchPageEitherFuture = fetch(searchUrl);
+  var searchPageEitherFuture = fetch(searchUrl);
 
-  return searchPageEitherFuture.flatMap(searchPage =>
-    ImdbSearchPage(searchPage).moviePathMaybe
-      .map(pathname => fetch(imdbUrl + pathname))
-      .getOrElse(FutureEither(Future(f =>
-        f(Either.Left(`Couldn't find movie "${yorckInfos.title}" on Imdb at ${searchUrl}`)))))
-      .map(detailPage => Movie(yorckInfos, ImdbDetailPage(detailPage))));
+  return searchPageEitherFuture.flatMap(function (searchPage) {
+    return ImdbSearchPage(searchPage).moviePathMaybe.map(function (pathname) {
+      return fetch(imdbUrl + pathname);
+    }).getOrElse(FutureEither(Future(function (f) {
+      return f(Either.Left('Couldn\'t find movie "' + yorckInfos.title + '" on Imdb at ' + searchUrl));
+    }))).map(function (detailPage) {
+      return Movie(yorckInfos, ImdbDetailPage(detailPage));
+    });
+  });
 };
 
-const showOnPage = (movies) => {
-  const moviesTable = document.getElementById("movies");
-  let moviesHtml = '';
-  movies.forEach(movie =>
-    moviesHtml += `
-      <tr>
-        <td>
-          ${movie.imdb.rating} (${movie.imdb.ratingsCount})
-        </td>
-        <td>
-          <a href="${movie.imdb.url}">
-            ${movie.imdb.title}
-          </a>
-        </td>
-        <td>
-          <a href="${movie.yorck.url}">
-            ${movie.yorck.title}
-          </a>
-        </td>
-      </tr>`);
+var showOnPage = function showOnPage(movies) {
+  var moviesTable = document.getElementById("movies");
+  var moviesHtml = '';
+  movies.forEach(function (movie) {
+    return moviesHtml += '\n      <tr>\n        <td>\n          ' + movie.imdb.rating + ' (' + movie.imdb.ratingsCount + ')\n        </td>\n        <td>\n          <a href="' + movie.imdb.url + '">\n            ' + movie.imdb.title + '\n          </a>\n        </td>\n        <td>\n          <a href="' + movie.yorck.url + '">\n            ' + movie.yorck.title + '\n          </a>\n        </td>\n      </tr>';
+  });
   moviesTable.innerHTML = moviesHtml;
 };
 
-const showPageLoadError = errorMessage =>
-  document.getElementById("errors").innerHTML += `<p>${errorMessage}</p>`;
+var showPageLoadError = function showPageLoadError(errorMessage) {
+  return document.getElementById("errors").innerHTML += '<p>' + errorMessage + '</p>';
+};
 
-const movies = function () {
-  let list = [];
+var movies = (function () {
+  var list = [];
   return {
-    add: movie => {
+    add: function add(movie) {
       list.push(movie);
-      list = _(list).sortBy(m => m.imdb.rating).reverse();
-      showOnPage(list)
+      list = _(list).sortBy(function (m) {
+        return m.imdb.rating;
+      }).reverse();
+      showOnPage(list);
     }
-  }
-}();
+  };
+})();
 
-const isSneakPreview = infos => infos.title.startsWith('Sneak');
+var isSneakPreview = function isSneakPreview(infos) {
+  return infos.title.startsWith('Sneak');
+};
 
-getYorckInfos()
-  .map(yorckInfos =>
-    _(yorckInfos)
-      .reject(isSneakPreview)
-      .map(getMovie)
-      .map(movieFutureEither =>
-        movieFutureEither
-          .map(movie => { movies.add(movie); return movie })
-          .getOrLeftMap(showPageLoadError)))
-  .getOrLeftMap(showPageLoadError);
+getYorckInfos().map(function (yorckInfos) {
+  return _(yorckInfos).reject(isSneakPreview).map(getMovie).map(function (movieFutureEither) {
+    return movieFutureEither.map(function (movie) {
+      movies.add(movie);return movie;
+    }).getOrLeftMap(showPageLoadError);
+  });
+}).getOrLeftMap(showPageLoadError);
+
 },{"data.either":3,"data.maybe":4,"js-csp":7,"underscore":16}],2:[function(require,module,exports){
 // Copyright (c) 2013-2014 Quildreen Motta <quildreen@gmail.com>
 //
