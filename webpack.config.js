@@ -3,12 +3,12 @@ var webpack = require('webpack');
 module.exports = {
   entry: "./index",
   output: {
-    path: __dirname + "/..",
-    filename: "index.js"
+    path: __dirname,
+    filename: "index.min.js"
   },
   debug: true,
   watch: true,
-  devtool: 'source-map',
+  devtool: '#source-map',
   module: {
     loaders: [
       {
