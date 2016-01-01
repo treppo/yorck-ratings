@@ -1,4 +1,3 @@
-const csp = require('js-csp');
 const _ = require('underscore');
 const Maybe = require('data.maybe');
 const Either = require('data.either');
