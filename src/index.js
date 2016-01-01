@@ -29,15 +29,18 @@ const FutureEither = future => {
   }
 };
 
-const fetch = url => FutureEither(Future(f => {
-  const req = new XMLHttpRequest();
-  req.onload = () =>
-    f(req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
-  req.open("GET", proxify(url), true);
-  req.responseType = "document";
-  req.overrideMimeType("text/html");
-  req.send();
-}));
+const request = url =>
+  FutureEither(Future(f => {
+    const req = new XMLHttpRequest();
+    const handleError = () => Either.Left(`Error ${req.status} – ${req.statusText} while loading ${url}`);
+    req.onload = () =>
+      f(req.status == 200 ? Either.Right(req.responseXML) : handleError());
+    req.onerror = handleError;
+    req.open("GET", proxify(url), true);
+    req.responseType = "document";
+    req.overrideMimeType("text/html");
+    req.send();
+  }));
 
 const YorckInfos = (title, url) => {
   const rotateArticle = title => {
@@ -111,7 +114,7 @@ const getYorckInfos = () => {
   const extractInfos = yp =>
     yp.movieAnchors.map(({textContent, href}) => YorckInfos(textContent, href));
 
-  return fetch(yorckFilmsUrl)
+  return request(yorckFilmsUrl)
     .map(YorckPage)
     .map(extractInfos)
 };
@@ -120,11 +123,11 @@ const getMovie = (yorckInfos) => {
   const imdbUrl = "http://www.imdb.com";
   const searchUrl = `${imdbUrl}/find?q=${encodeURIComponent(yorckInfos.searchableTitle)}`;
 
-  const searchPageEitherFuture = fetch(searchUrl);
+  const searchPageEitherFuture = request(searchUrl);
 
   return searchPageEitherFuture.flatMap(searchPage =>
     ImdbSearchPage(searchPage).moviePathMaybe
-      .map(pathname => fetch(imdbUrl + pathname))
+      .map(pathname => request(imdbUrl + pathname))
       .getOrElse(FutureEither(Future(f =>
         f(Either.Left(`Couldn't find movie "${yorckInfos.title}" on Imdb at ${searchUrl}`)))))
       .map(detailPage => Movie(yorckInfos, ImdbDetailPage(detailPage))));

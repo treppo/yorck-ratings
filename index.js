@@ -62,12 +62,16 @@ var FutureEither = function FutureEither(future) {
   };
 };
 
-var fetch = function fetch(url) {
+var request = function request(url) {
   return FutureEither(Future(function (f) {
     var req = new XMLHttpRequest();
-    req.onload = function () {
-      return f(req.status == 200 ? Either.Right(req.responseXML) : Either.Left(req.statusText));
+    var handleError = function handleError() {
+      return Either.Left('Error ' + req.status + ' – ' + req.statusText + ' while loading ' + url);
     };
+    req.onload = function () {
+      return f(req.status == 200 ? Either.Right(req.responseXML) : handleError());
+    };
+    req.onerror = handleError;
     req.open("GET", proxify(url), true);
     req.responseType = "document";
     req.overrideMimeType("text/html");
@@ -155,18 +159,18 @@ var getYorckInfos = function getYorckInfos() {
     });
   };
 
-  return fetch(yorckFilmsUrl).map(YorckPage).map(extractInfos);
+  return request(yorckFilmsUrl).map(YorckPage).map(extractInfos);
 };
 
 var getMovie = function getMovie(yorckInfos) {
   var imdbUrl = "http://www.imdb.com";
   var searchUrl = imdbUrl + '/find?q=' + encodeURIComponent(yorckInfos.searchableTitle);
 
-  var searchPageEitherFuture = fetch(searchUrl);
+  var searchPageEitherFuture = request(searchUrl);
 
   return searchPageEitherFuture.flatMap(function (searchPage) {
     return ImdbSearchPage(searchPage).moviePathMaybe.map(function (pathname) {
-      return fetch(imdbUrl + pathname);
+      return request(imdbUrl + pathname);
     }).getOrElse(FutureEither(Future(function (f) {
       return f(Either.Left('Couldn\'t find movie "' + yorckInfos.title + '" on Imdb at ' + searchUrl));
     }))).map(function (detailPage) {
