@@ -16,6 +16,7 @@ table {
 
 td, th {
     padding: 0 0.5rem;
+    white-space: nowrap;
 }
 
 thead {
