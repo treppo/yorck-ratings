@@ -82,7 +82,7 @@ const Movie = (yorckInfos, imdbInfos) => {
 
 const YorckPage = doc => {
   return {
-    movieAnchors: _(doc.querySelectorAll('.films a'))
+    movieAnchors: _(doc.querySelectorAll('.movie-details a'))
   }
 };
 
@@ -108,7 +108,7 @@ const ImdbDetailPage = doc => {
 };
 
 const getYorckInfos = () => {
-  const yorckFilmsUrl = "http://www.yorck.de/mobile/filme";
+  const yorckFilmsUrl = "http://www.yorck.de/filme";
 
   const extractInfos = yp =>
     yp.movieAnchors.map(({textContent, href}) => YorckInfos(textContent, href));
