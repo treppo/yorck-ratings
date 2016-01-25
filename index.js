@@ -108,7 +108,7 @@ const ImdbDetailPage = doc => {
 };
 
 const getYorckInfos = () => {
-  const yorckFilmsUrl = "http://www.yorck.de/filme";
+  const yorckFilmsUrl = "https://www.yorck.de/filme?filter_today=true";
 
   const extractInfos = yp =>
     yp.movieAnchors.map(({textContent, href}) => YorckInfos(textContent, href));
